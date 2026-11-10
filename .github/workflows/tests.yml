@@ -1,0 +1,28 @@
+name: Tests
+on: [push, pull_request]
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install Lua and current fzf
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y lua5.4
+          curl --fail --location --output fzf.tar.gz https://github.com/junegunn/fzf/releases/download/v0.74.5/fzf-0.74.5-linux_amd64.tar.gz
+          echo 'd47d7f882972c7d674dbbba998ffa4116e68379616ffac7695d0671e9a722c5f  fzf.tar.gz' | sha256sum -c -
+          tar -xzf fzf.tar.gz fzf
+          sudo install -m755 fzf /usr/local/bin/fzf
+          rm fzf fzf.tar.gz
+      - name: Package browser tests (no transactions or network)
+        run: python3 -B -m unittest discover -s system-menu/packages -p 'test_*.py' -v
+      - name: Collector tests
+        run: python3 -B -m unittest discover -s system-menu -p 'test_collect.py' -v
+      - name: Menu, widget and About tests
+        working-directory: system-menu
+        run: lua5.4 test_ui.lua

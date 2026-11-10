@@ -1,0 +1,12 @@
+__pycache__/
+*.py[cod]
+*.key
+.env
+.env.*
+*.log
+*.pkg.tar.*
+.venv/
+.pytest_cache/
+virustotal.key
+reports/
+private/
