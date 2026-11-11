@@ -38,6 +38,21 @@ class CatalogTests(unittest.TestCase):
                 self.assertTrue(value)
         self.assertRegex((plugin / "README.md").read_text(), re.compile(r"^## Settings$", re.MULTILINE))
 
+    def test_argument_lists_are_advanced_without_changing_keys_or_defaults(self):
+        plugin = Path(__file__).resolve().parents[1] / "system-menu"
+        manifest = tomllib.loads((plugin / "plugin.toml").read_text())
+        settings = manifest["setting"]
+        self.assertEqual([setting["key"] for setting in settings],
+                         ["terminal", "aur_helper", "terminal_args", "terminal_exec_args"])
+        for setting, default in zip(settings[:2], ["kitty", "paru"]):
+            self.assertEqual(setting["type"], "string")
+            self.assertEqual(setting["default"], default)
+            self.assertFalse(setting.get("advanced", False))
+        for setting, default in zip(settings[2:], [[], ["-e"]]):
+            self.assertEqual(setting["type"], "string_list")
+            self.assertEqual(setting["default"], default)
+            self.assertTrue(setting["advanced"])
+
 
 if __name__ == "__main__":
     unittest.main()
