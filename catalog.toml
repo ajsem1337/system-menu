@@ -1,0 +1,12 @@
+# Git sources require this index. Keep these fields in sync with system-menu/plugin.toml.
+[[plugin]]
+id = "ajsem1337/system-menu"
+name = "System Menu"
+version = "1.1.0"
+plugin_api = 43
+author = "ajsem1337"
+license = "MIT"
+description = "System menu with an Arch package browser, your choice of terminal and AUR helper, btop and system information."
+icon = "device-desktop"
+tags = ["bar", "panel", "system", "utility", "arch"]
+dependencies = ["python3", "fastfetch", "lsblk", "btop", "fzf", "pacman", "pacman-conf", "sudo", "downgrade", "traur", "xdg-open", "cat"]

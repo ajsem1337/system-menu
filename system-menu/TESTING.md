@@ -3,6 +3,7 @@
 From the repository root:
 
 ```sh
+python3 -B -m unittest test_catalog -v
 python3 -B -m unittest discover -s system-menu/packages -p 'test_*.py' -v
 python3 -B -m unittest discover -s system-menu -p 'test_collect.py' -v
 (cd system-menu && lua test_ui.lua)
