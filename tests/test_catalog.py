@@ -38,20 +38,35 @@ class CatalogTests(unittest.TestCase):
                 self.assertTrue(value)
         self.assertRegex((plugin / "README.md").read_text(), re.compile(r"^## Settings$", re.MULTILINE))
 
-    def test_argument_lists_are_advanced_without_changing_keys_or_defaults(self):
+    def test_argument_lists_have_a_plugin_local_visibility_switch(self):
         plugin = Path(__file__).resolve().parents[1] / "system-menu"
         manifest = tomllib.loads((plugin / "plugin.toml").read_text())
         settings = manifest["setting"]
         self.assertEqual([setting["key"] for setting in settings],
-                         ["terminal", "aur_helper", "terminal_args", "terminal_exec_args"])
+                         ["terminal", "aur_helper", "show_terminal_arguments", "terminal_args", "terminal_exec_args"])
         for setting, default in zip(settings[:2], ["kitty", "paru"]):
             self.assertEqual(setting["type"], "string")
             self.assertEqual(setting["default"], default)
             self.assertFalse(setting.get("advanced", False))
-        for setting, default in zip(settings[2:], [[], ["-e"]]):
+        toggle = settings[2]
+        self.assertEqual(toggle["type"], "bool")
+        self.assertIs(toggle["default"], False)
+        self.assertFalse(toggle.get("advanced", False))
+        for setting, default in zip(settings[3:], [[], ["-e"]]):
             self.assertEqual(setting["type"], "string_list")
             self.assertEqual(setting["default"], default)
-            self.assertTrue(setting["advanced"])
+            self.assertFalse(setting.get("advanced", False))
+            self.assertEqual(setting["visible_when"],
+                             {"key": toggle["key"], "values": ["true"]})
+
+    def test_catalog_extra_tools_do_not_repeat_baseline_arch_commands(self):
+        plugin = Path(__file__).resolve().parents[1] / "system-menu"
+        manifest = tomllib.loads((plugin / "plugin.toml").read_text())
+        baseline = {"pacman", "pacman-conf", "sudo", "lsblk", "cat"}
+        self.assertFalse(baseline.intersection(manifest["dependencies"]))
+        operations = (plugin / "OPERATIONS.md").read_text()
+        for command in baseline:
+            self.assertIn(f"`{command}`", operations)
 
 
 if __name__ == "__main__":
