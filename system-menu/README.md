@@ -32,6 +32,19 @@ Install dependencies separately:
 Missing optional tools do not block unrelated features. No scanner fork,
 makepkg wrapper, private configuration or API key is bundled.
 
+### Distribution icon
+
+The bar button, menu header and About panel detect the installed distribution
+from `LOGO`, `ID` and `ID_LIKE` in `/etc/os-release` (or `/usr/lib/os-release`
+when the former is unavailable). Noctalia resolves the logo through the current
+icon theme; common files in `/usr/share/icons` and `/usr/share/pixmaps` are also
+checked. CachyOS, Arch, Artix and other distributions use their own installed
+artwork, not a hard-coded CachyOS path or a bundled collection of distro logos.
+The distribution's logo is preferred over its parent distribution's icon.
+If no matching icon is installed, a generic system icon is used. Detection is
+local, never executes os-release as a script and does not download icons.
+This does not change the Arch-specific requirements for package actions.
+
 ## Configuration
 
 Open **Settings → Plugins → System Menu** (gear icon). These settings are shared

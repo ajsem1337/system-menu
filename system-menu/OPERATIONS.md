@@ -56,6 +56,12 @@ and `noctalia --version`. Only confirmed package actions invoke sudo; the plugin
 itself is not run as root. It creates no services, timers, repository settings,
 scanner installation, or terminal/btop configuration.
 
+The bar button, menu and About panel read `LOGO`, `ID` and `ID_LIKE` from
+`/etc/os-release` (falling back to `/usr/lib/os-release`), resolve installed
+icons through Noctalia's icon theme and standard system icon directories, and
+use a generic icon when none matches. This uses no subprocesses or network;
+os-release values are parsed as data, never evaluated as shell commands.
+
 About reads curated fastfetch JSON, hostname, session environment, OS-release,
 selected proc/sysfs fields and physical disk models/capacities. It does not collect
 IP/MAC addresses, serial numbers, machine IDs or package inventories. Copy

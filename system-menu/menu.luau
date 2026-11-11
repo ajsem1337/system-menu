@@ -1,5 +1,7 @@
 --!nonstrict
 
+local distroIcon = require("./distro_icon.luau")
+
 local function launch(argv)
     panel.close()
     if not noctalia.runAsync(argv) then
@@ -50,9 +52,11 @@ function openAbout()
 end
 
 function onOpen()
+    local icon = distroIcon.path(24)
     panel.render(ui.column({ gap = 6 }, {
         ui.row({ gap = 10, align = "center", paddingH = 10, paddingV = 8 }, {
-            ui.glyph({ name = "device-desktop", size = 24 }),
+            icon and ui.image({ path = icon, width = 24, height = 24 })
+                or ui.glyph({ name = "device-desktop", size = 24 }),
             ui.label({ text = "System", fontWeight = "bold", fontSize = 17 }),
         }),
         ui.separator({ spacing = 4 }),

@@ -10,6 +10,9 @@ Set the terminal and AUR helper in **Settings → Plugins → System Menu**.
 Defaults are Kitty and paru; yay or another helper with a compatible CLI can be
 used instead. See [configuration and examples](system-menu/README.md#configuration).
 
+The bar button, menu and About panel automatically use your distribution's
+installed logo (CachyOS, Arch, Artix, etc.), with a generic fallback.
+
 ## Install
 
 ```sh
