@@ -2,13 +2,15 @@ import unittest
 from unittest.mock import patch
 from pathlib import Path
 import tomllib
+import sys
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "system-menu"))
 import collect
 
 
 class SystemProfileTests(unittest.TestCase):
     def test_about_persists_but_menu_remains_transient(self):
-        manifest = tomllib.loads(Path(__file__).with_name("plugin.toml").read_text())
+        manifest = tomllib.loads(Path(collect.__file__).with_name("plugin.toml").read_text())
         panels = {panel["id"]: panel for panel in manifest["panel"]}
         self.assertTrue(panels["about"]["persistent"])
         self.assertFalse(panels["about"]["dismiss_on_outside_click"])
@@ -53,6 +55,7 @@ class SystemProfileTests(unittest.TestCase):
         with patch.object(collect, "json_command", side_effect=[[], devices]):
             profile = collect.collect()
         disks = next(section for section in profile["sections"] if section["title"] == "Storage")
+        self.assertEqual(disks["icon"], "storage")
         self.assertEqual(len(disks["rows"]), 1)
         self.assertEqual(disks["rows"][0]["value"], "Example SSD")
         self.assertEqual(disks["rows"][0]["detail"], "1 TB · SSD NVMe")

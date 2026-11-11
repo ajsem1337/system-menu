@@ -7,7 +7,7 @@ import unittest
 
 class CatalogTests(unittest.TestCase):
     def test_git_catalog_matches_plugin_manifest(self):
-        root = Path(__file__).resolve().parent
+        root = Path(__file__).resolve().parents[1]
         catalog = tomllib.loads((root / "catalog.toml").read_text())["plugin"]
         self.assertEqual(len(catalog), 1)
         entry = catalog[0]
@@ -18,7 +18,7 @@ class CatalogTests(unittest.TestCase):
                 self.assertEqual(entry[key], manifest[key])
 
     def test_settings_translations_are_nested_and_documented(self):
-        plugin = Path(__file__).resolve().parent / "system-menu"
+        plugin = Path(__file__).resolve().parents[1] / "system-menu"
         manifest = tomllib.loads((plugin / "plugin.toml").read_text())
         translations = json.loads((plugin / "translations/en.json").read_text())
 

@@ -19,10 +19,8 @@ jobs:
           tar -xzf fzf.tar.gz fzf
           sudo install -m755 fzf /usr/local/bin/fzf
           rm fzf fzf.tar.gz
-      - name: Package browser tests (no transactions or network)
-        run: python3 -B -m unittest discover -s system-menu/packages -p 'test_*.py' -v
-      - name: Collector tests
-        run: python3 -B -m unittest discover -s system-menu -p 'test_collect.py' -v
+      - name: Python tests (no transactions or network)
+        run: python3 -B -m unittest discover -s tests -v
       - name: Menu, widget and About tests
         working-directory: system-menu
-        run: lua5.4 test_ui.lua
+        run: lua5.4 ../tests/test_ui.lua

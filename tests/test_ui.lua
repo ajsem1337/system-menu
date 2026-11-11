@@ -1,4 +1,4 @@
--- Run with `lua test_ui.lua` from this directory; no shell instance is needed.
+-- Run from system-menu/: lua ../tests/test_ui.lua
 local function environment()
     local state = { renders = 0, launches = {}, copied = nil, files = {}, icons = {}, iconLookups = {},
         config = { terminal = "kitty", terminal_args = {}, terminal_exec_args = { "-e" }, aur_helper = "paru" } }

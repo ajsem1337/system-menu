@@ -2,16 +2,8 @@
 
 ![Made with AI](https://img.shields.io/badge/Made%20with-AI-76ddcf)
 
-Noctalia v5 menu with an Arch package browser, btop, a terminal of your choice
-and system information. Bring your own compatible AUR helper, too.
+Noctalia v5 system menu with an Arch package browser and system information.
 Inspired by the GNOME [Logo Menu](https://github.com/Aryan20/Logomenu) extension.
-
-Set the terminal and AUR helper in **Settings → Plugins → System Menu**.
-Defaults are Kitty and paru; yay or another helper with a compatible CLI can be
-used instead. See [configuration and examples](system-menu/README.md#configuration).
-
-The bar button, menu and About panel automatically use your distribution's
-installed logo (CachyOS, Arch, Artix, etc.), with a generic fallback.
 
 ## Install
 
@@ -27,14 +19,20 @@ or open it directly:
 noctalia msg panel-toggle ajsem1337/system-menu:menu
 ```
 
-See [requirements and controls](system-menu/README.md). Dependencies are installed
-separately; package actions require Arch Linux or a compatible derivative.
+See [settings, requirements and controls](system-menu/README.md).
 
 ## Development
 
-Tests: [package frontend](system-menu/packages/README.md),
-[collector and UI](system-menu/TESTING.md). The [community submission](https://github.com/noctalia-dev/community-plugins/pull/1389)
-is a draft.
+```sh
+python3 -B -m unittest discover -s tests -v
+(cd system-menu && lua5.4 ../tests/test_ui.lua)
+noctalia plugins lint system-menu
+```
+
+Tests stay outside the installed plugin. They use mocked network/transactions,
+real fzf filters (0.74.5+) and Lua UI stubs. The
+[community PR](https://github.com/noctalia-dev/community-plugins/pull/1389) remains
+a draft pending human review, screenshots and cross-compositor testing.
 
 ## Credits
 

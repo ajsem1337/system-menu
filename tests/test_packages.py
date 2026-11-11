@@ -4,17 +4,34 @@ import io
 import json
 import shlex
 import subprocess
+import sys
 from pathlib import Path
 import tempfile
 import unittest
 from unittest.mock import patch
 import urllib.error
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "system-menu/packages"))
 import app
 
 
 def package(name="example", kind="repo", source="cachyos-v3"):
     return {"id": f"{source}/{name}", "name": name, "source": source, "version": "1.0-1", "kind": kind}
+
+
+@contextlib.contextmanager
+def preview_catalog(record, mode="summary"):
+    with tempfile.TemporaryDirectory() as directory:
+        database = Path(directory) / "catalog.json"
+        database.write_text(json.dumps({record["id"]: record}))
+        (database.parent / "preview-mode").write_text(mode)
+        yield database
+
+
+def render_preview(database, record):
+    with contextlib.redirect_stdout(io.StringIO()) as output:
+        app.preview(database, record["id"])
+    return output.getvalue()
 
 
 class PackageMenuTests(unittest.TestCase):
@@ -383,20 +400,125 @@ class PackageMenuTests(unittest.TestCase):
     def test_installed_preview_explains_inferred_source_and_uses_pacman_qi(self):
         record = package("example", "installed", "aur")
         record["source_detail"] = "Exact package name found in AUR; installation origin was not recorded."
-        with tempfile.TemporaryDirectory() as directory:
-            database = Path(directory) / "catalog.json"
-            database.write_text(json.dumps({record["id"]: record}))
-            with patch.object(app, "capture", return_value="Installed metadata") as capture, contextlib.redirect_stdout(io.StringIO()) as output:
-                app.preview(database, record["id"])
+        with preview_catalog(record, "details") as database, patch.object(app, "preview_aur"), patch.object(app, "capture", return_value="Installed metadata") as capture:
+            output = render_preview(database, record)
         capture.assert_called_once_with(["pacman", "-Qi", "--", "example"])
-        self.assertIn(record["source_detail"], output.getvalue())
+        self.assertIn(record["source_detail"], output)
+
+    def test_aur_preview_summary_details_and_session_cache(self):
+        record = package(kind="aur", source="aur")
+        item = {"Name": "example", "Version": "1.0-1", "Description": "A useful tool", "Maintainer": "alice",
+                "NumVotes": 248, "Popularity": 2.003, "License": ["MIT"], "Depends": ["glibc"],
+                "URL": "https://example.org", "LastModified": 1700000000, "MakeDepends": ["gcc"]}
+        with preview_catalog(record) as database, patch.object(app, "aur_info", return_value={"example": item}) as info:
+            summary = render_preview(database, record)
+            self.assertTrue(all(value in summary for value in ("alice", "248", "2.003", "MIT", "glibc", "Alt+D", "Alt+B")))
+            self.assertTrue(all(value not in summary for value in ("Source:", "https://", "Modified", "gcc", "safe")))
+            self.assertEqual(summary.splitlines()[0], "example")
+            self.assertEqual(summary.count("1.0-1"), 1)
+            self.assertEqual(app.preview_mode(database, "details"), "refresh-preview")
+            details = render_preview(database, record)
+            self.assertTrue(all(value in details for value in ("https://example.org", "Modified", "gcc")))
+            app.preview_mode(database, "details")
+            self.assertEqual(render_preview(database, record), summary)
+        info.assert_called_once_with(["example"])
+
+    def test_aur_recipe_uses_split_base_is_cached_and_never_executed(self):
+        record = package(kind="aur", source="aur")
+        recipe = b'pkgname=example\n# never execute\ntouch /not-executed\n\x1b[31mtext\x00\n'
+        with preview_catalog(record, "recipe") as database, patch.object(app, "aur_info", return_value={"example": {"PackageBase": "split-base"}}), patch.object(app.urllib.request, "urlopen", return_value=io.BytesIO(recipe)) as send, patch.object(app, "capture") as capture:
+            output = render_preview(database, record)
+            self.assertIn("touch /not-executed", output)
+            self.assertIn("read-only", output)
+            self.assertNotIn("\x1b", output)
+            self.assertNotIn("\x00", output)
+            self.assertEqual(render_preview(database, record), output)
+            self.assertEqual(send.call_count, 1)
+            self.assertTrue(send.call_args.args[0].endswith("plain/PKGBUILD?h=split-base"))
+            capture.assert_not_called()
+
+    def test_aur_preview_handles_orphans_old_installed_versions_and_flags(self):
+        record = package(kind="installed", source="aur")
+        local = "Description     : Installed description\nDepends On      : installed-dep\nInstall Date    : Local date\n"
+        with preview_catalog(record) as database, patch.object(app, "aur_info", return_value={"example": {"Maintainer": None, "Version": "2.0-1", "OutOfDate": 1, "Depends": ["remote-dep"]}}), patch.object(app, "capture", return_value=local) as capture:
+            output = render_preview(database, record)
+        self.assertTrue(all(value in output for value in ("Orphaned", "out-of-date", "AUR version", "2.0-1")))
+        self.assertIn("Description     : Installed description", output)
+        self.assertNotIn("Install Date", output)
+        self.assertNotIn("remote-dep", output)
+        self.assertLess(output.index("Installed description"), output.index("Maintainer"))
+        capture.assert_called_once_with(["pacman", "-Qi", "--", "example"])
+
+    def test_aur_preview_uses_pacman_columns_wrapping_and_zero_statistics(self):
+        record = package(kind="aur", source="aur")
+        item = {"Description": "A long package description " * 5, "NumVotes": 0, "Popularity": 0,
+                "Depends": ["glibc", "a-long-dependency-name", "another-dependency"]}
+        with preview_catalog(record) as database, patch.object(app, "aur_info", return_value={"example": item}), patch.dict(app.os.environ, FZF_PREVIEW_COLUMNS="48"):
+            output = render_preview(database, record)
+        fields = output.splitlines()[1:-2]
+        self.assertTrue(all(len(line) <= 48 for line in fields))
+        self.assertTrue(all(line[16:18] == ": " or line.startswith(" " * 18) for line in fields))
+        self.assertIn("Votes           : 0", output)
+        self.assertIn("Popularity      : 0", output)
+        self.assertIn("Licenses        : None", output)
+        self.assertIn("Depends On      : glibc  a-long-dependency-name", output)
+
+    def test_installed_aur_keeps_pacman_metadata_when_network_is_unavailable(self):
+        record = package(kind="installed", source="aur")
+        local = "Name            : example\nInstalled Size  : 42 KiB\nRequired By     : other\n"
+        with preview_catalog(record) as database, patch.object(app, "aur_info", side_effect=OSError("offline")), patch.object(app, "capture", return_value=local) as capture:
+            output = render_preview(database, record)
+        self.assertEqual(output.splitlines()[0], "example")
+        self.assertIn("Installed Size  : 42 KiB", output)
+        self.assertIn("Required By     : other", output)
+        self.assertIn("AUR preview unavailable: offline", output)
+        capture.assert_called_once_with(["pacman", "-Qi", "--", "example"])
+
+    def test_repo_preview_default_and_full_details_share_the_same_metadata(self):
+        info = ("Name            : example\nVersion         : 1.0-1\nDescription     : Useful package\n"
+                "Licenses        : MIT\nDepends On      : glibc\nInstalled Size  : 42 KiB\n"
+                "Packager        : Alice\nArchitecture    : x86_64\nURL             : https://example.org\n"
+                "Groups          : utils\nConflicts With  : old-tool\nReplaces        : older-tool\n"
+                "Build Date      : yesterday\nOptional Deps   : extra-tool\n")
+        for kind, operation in (("repo", "-Si"), ("installed", "-Qi")):
+            record = package(kind=kind, source="extra")
+            with preview_catalog(record) as database, patch.object(app, "capture", return_value=info) as capture:
+                compact = render_preview(database, record)
+                self.assertEqual(compact.splitlines()[0], "example")
+                self.assertEqual(compact.count("1.0-1"), 1)
+                self.assertTrue(all(value in compact for value in ("Useful package", "MIT", "glibc", "42 KiB", "Alice", "Alt+D full details")))
+                self.assertTrue(all(value not in compact for value in ("Architecture", "URL", "Groups", "Conflicts", "Replaces", "Build Date", "Optional Deps", "Alt+B")))
+                app.preview_mode(database, "details")
+                full = render_preview(database, record)
+                self.assertIn(info, full)
+                self.assertIn("Alt+D compact view", full)
+                target = record["name"] if kind == "installed" else record["id"]
+                capture.assert_called_with(["pacman", operation, "--", target])
+                app.preview_mode(database, "details")
+                self.assertEqual(render_preview(database, record), compact)
+
+    def test_aur_preview_errors_are_not_security_verdicts(self):
+        record = dict(package(kind="aur", source="aur"), description="Cached description")
+        for response in (OSError("offline"), {}, {"example": {"LastModified": "invalid"}}):
+            with preview_catalog(record, "details") as database, patch.object(app, "aur_info", **({"side_effect": response} if isinstance(response, Exception) else {"return_value": response})):
+                output = render_preview(database, record)
+            self.assertIn("Cached description", output)
+            self.assertIn("preview unavailable", output)
+            self.assertNotIn("Trusted", output)
+
+    def test_preview_mode_binding_does_not_exit_or_change_selections(self):
+        with patch.object(app.subprocess, "run", return_value=subprocess.CompletedProcess([], 130, "")) as run:
+            app.picker([package()], "Test")
+        self.assertTrue(any("alt-d:transform(" in arg and "alt-b:transform(" in arg for arg in run.call_args.args[0]))
+        with preview_catalog(package()) as database, self.assertRaises(app.Error):
+            app.preview_mode(database, "invalid")
 
     def test_aur_info_batches_exact_names_and_includes_split_packages(self):
         names = [f"example-{index}" for index in range(101)] + ["libc++"]
         responses = [io.BytesIO(json.dumps({"type": "multiinfo", "results": [{"Name": "example-0"}]}).encode()),
                      io.BytesIO(json.dumps({"type": "multiinfo", "results": [{"Name": "libc++", "PackageBase": "libcxx"}]}).encode())]
         with patch.object(app.urllib.request, "urlopen", side_effect=responses) as send:
-            self.assertEqual(app.aur_info(names), {"example-0", "libc++"})
+            self.assertEqual(set(app.aur_info(names)), {"example-0", "libc++"})
         self.assertEqual(send.call_count, 2)
         for call, expected in zip(send.call_args_list, (names[:100], names[100:])):
             url = app.urllib.parse.urlsplit(call.args[0])
@@ -405,7 +527,7 @@ class PackageMenuTests(unittest.TestCase):
 
     def test_aur_info_empty_list_does_not_use_network(self):
         with patch.object(app.urllib.request, "urlopen") as send:
-            self.assertEqual(app.aur_info([]), set())
+            self.assertEqual(app.aur_info([]), {})
         send.assert_not_called()
 
     def test_aur_info_rejects_invalid_and_unrequested_results(self):
@@ -496,6 +618,17 @@ class PackageMenuTests(unittest.TestCase):
             app.audit([package(kind="aur", source="aur")])
         self.assertIn("Malicious", output.getvalue())
         self.assertNotIn("NO VALID AUDIT RESULT", output.getvalue())
+
+    def test_audit_is_manual_skips_repo_origins_and_rejects_incomplete_reports(self):
+        with patch.object(app, "capture") as capture, contextlib.redirect_stdout(io.StringIO()):
+            app.audit([package(), package(kind="installed", source="extra")])
+        capture.assert_not_called()
+        for result in ({"tier": "Trusted", "status": "incomplete", "signals": []}, [], {"tier": "Ok", "status": "complete", "signals": "invalid"}):
+            with patch.object(app, "capture", return_value=json.dumps(result)) as capture, patch.object(app.subprocess, "call") as install, contextlib.redirect_stdout(io.StringIO()) as output:
+                app.audit([package(kind="aur", source="aur")])
+            self.assertEqual(capture.call_args.args[0], ["traur", "scan", "example", "--json"])
+            self.assertIn("NO VALID AUDIT RESULT", output.getvalue())
+            install.assert_not_called()
 
 
 if __name__ == "__main__":
