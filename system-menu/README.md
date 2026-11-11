@@ -115,6 +115,9 @@ Search matches package **names only**, ignoring case. AUR joins after 2 characte
 and a short pause. Results are alphabetical per source, with distinct source
 colors. Finish selecting before changing the query: reload can clear non-matching
 selections. Results remain visible until Enter, then the terminal is cleared.
+Installed lists also resolve missing sources through local repository databases
+and exact-name AUR lookups; AUR stays at the end. Preview distinguishes recorded
+origins from availability-based labels. Unmatched/offline results stay unknown.
 
 ## Notes
 

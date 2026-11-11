@@ -303,6 +303,118 @@ class PackageMenuTests(unittest.TestCase):
         self.assertEqual(records[0]["source"], "cachyos-v3")
         self.assertEqual(records[1]["source"], "local/unknown")
 
+    def installed_catalog(self, installed, repositories="", aur=()):
+        with patch.object(app, "capture", side_effect=[installed, repositories]), patch.object(app, "aur_info", return_value=set(aur)):
+            return app.catalog("installed")
+
+    def test_installed_missing_and_empty_origin_are_unresolved_not_aur_guesses(self):
+        for origin in ("", "Installed From  : \n", "Installed From  : None\n"):
+            records = app.parse_installed(origin + "Name            : local-bin\nVersion         : 1.0\n")
+            self.assertEqual(records[0]["source"], "local/unknown")
+
+    def test_installed_sources_resolve_all_repositories_before_aur(self):
+        output = ("Name            : anydesk-bin\nVersion         : 1\n\n"
+                  "Name            : mingw-w64-binutils\nVersion         : 2.47-1.1\n\n"
+                  "Name            : custom-tool\nVersion         : 1\n\n"
+                  "Installed From  : omarchy\nName            : visual-studio-code-bin\nVersion         : 1\n")
+        repos = ("extra mingw-w64-binutils 2.47-1\n"
+                 "cachyos-extra-v3 mingw-w64-binutils 2.47-1.1\n"
+                 "new-repo custom-tool 2\n")
+        with patch.object(app, "capture", side_effect=[output, repos]) as capture, patch.object(app, "aur_info", return_value={"anydesk-bin"}) as info:
+            records = app.catalog("installed")
+        self.assertEqual([r["source"] for r in records], ["aur", "cachyos-extra-v3", "new-repo", "omarchy"])
+        info.assert_called_once_with(["anydesk-bin"])
+        self.assertEqual([call.args[0] for call in capture.call_args_list], [["pacman", "-Qi"], ["pacman", "-Sl"]])
+        self.assertTrue(all(r["kind"] == "installed" and r["id"] == "installed/" + r["name"] for r in records))
+        self.assertIn("version differs", records[2]["source_detail"])
+        self.assertNotIn("source_detail", records[3])
+
+    def test_installed_repo_ties_follow_pacman_priority_not_alphabetical_order(self):
+        output = "Name            : example\nVersion         : 1.0-1\n"
+        for repositories in ("z-repo example 1.0-1\na-repo example 1.0-1\n",
+                             "z-repo example 2.0-1\na-repo example 3.0-1\n"):
+            records = self.installed_catalog(output, repositories)
+            self.assertEqual(records[0]["source"], "z-repo")
+
+    def test_installed_recorded_origin_is_not_overwritten_by_current_availability(self):
+        output = ("Installed From  : removed-repo\nName            : example\nVersion         : 1\n\n"
+                  "Name            : foreign\nVersion         : 1\n")
+        records = self.installed_catalog(output, "extra example 1\n", {"foreign"})
+        self.assertEqual([r["source"] for r in records], ["removed-repo", "aur"])
+
+    def test_installed_recorded_origins_need_no_lookup(self):
+        with patch.object(app, "capture", return_value="Installed From  : extra\nName            : example\n") as capture, patch.object(app.urllib.request, "urlopen") as send:
+            self.assertEqual(app.catalog("installed")[0]["source"], "extra")
+        capture.assert_called_once_with(["pacman", "-Qi"])
+        send.assert_not_called()
+
+    def test_installed_unmatched_local_bin_and_git_packages_stay_unknown(self):
+        output = "Name            : local-bin\nVersion         : 1\n\nName            : local-git\nVersion         : 1\n"
+        records = self.installed_catalog(output)
+        self.assertEqual([r["source"] for r in records], ["local/unknown", "local/unknown"])
+        self.assertIn("No recorded origin", records[0]["source_detail"])
+
+    def test_installed_aur_failure_preserves_repos_and_removal(self):
+        output = "Name            : repo-tool\nVersion         : 1\n\nName            : aur-tool\nVersion         : 1\n"
+        for error in (OSError("offline"), ValueError("bad JSON"), app.Error("invalid response")):
+            with patch.object(app, "capture", side_effect=[output, "extra repo-tool 1\n"]), patch.object(app, "aur_info", side_effect=error), contextlib.redirect_stderr(io.StringIO()) as warning:
+                records = app.catalog("installed")
+            self.assertEqual([r["source"] for r in records], ["extra", "local/unknown"])
+            self.assertIn("AUR source lookup unavailable", warning.getvalue())
+            self.assertIn("AUR lookup unavailable", records[1]["source_detail"])
+            self.assertEqual(app.transaction_command("remove", records), ["sudo", "pacman", "-Rns", "--", "repo-tool", "aur-tool"])
+
+    def test_installed_repo_failure_does_not_misclassify_packages_as_aur(self):
+        with patch.object(app, "capture", side_effect=["Name            : example\n", app.Error("missing database")]), patch.object(app, "aur_info") as info, contextlib.redirect_stderr(io.StringIO()):
+            records = app.catalog("installed")
+        info.assert_not_called()
+        self.assertEqual(records[0]["source"], "local/unknown")
+        self.assertIn("missing database", records[0]["source_detail"])
+
+    def test_installed_aur_is_last_yellow_and_remains_an_installed_selection(self):
+        records = [package("aur-bin", "installed", "aur"), package("repo-bin", "installed", "extra"),
+                   package("cachy-bin", "installed", "cachyos"), package("local-bin", "installed", "local/unknown")]
+        self.assertEqual(self.filter_records(records, "-bin"),
+                         ["extra/repo-bin", "local/unknown/local-bin", "cachyos/cachy-bin", "aur/aur-bin"])
+        self.assertEqual(app.source_color("aur", "installed", {}), app.source_color("aur", "aur", {}))
+        self.assertIn("AUR ", app.picker_rows(records, show_state=False))
+        self.assertEqual(app.transaction_command("remove", records[:1]), ["sudo", "pacman", "-Rns", "--", "aur-bin"])
+
+    def test_installed_preview_explains_inferred_source_and_uses_pacman_qi(self):
+        record = package("example", "installed", "aur")
+        record["source_detail"] = "Exact package name found in AUR; installation origin was not recorded."
+        with tempfile.TemporaryDirectory() as directory:
+            database = Path(directory) / "catalog.json"
+            database.write_text(json.dumps({record["id"]: record}))
+            with patch.object(app, "capture", return_value="Installed metadata") as capture, contextlib.redirect_stdout(io.StringIO()) as output:
+                app.preview(database, record["id"])
+        capture.assert_called_once_with(["pacman", "-Qi", "--", "example"])
+        self.assertIn(record["source_detail"], output.getvalue())
+
+    def test_aur_info_batches_exact_names_and_includes_split_packages(self):
+        names = [f"example-{index}" for index in range(101)] + ["libc++"]
+        responses = [io.BytesIO(json.dumps({"type": "multiinfo", "results": [{"Name": "example-0"}]}).encode()),
+                     io.BytesIO(json.dumps({"type": "multiinfo", "results": [{"Name": "libc++", "PackageBase": "libcxx"}]}).encode())]
+        with patch.object(app.urllib.request, "urlopen", side_effect=responses) as send:
+            self.assertEqual(app.aur_info(names), {"example-0", "libc++"})
+        self.assertEqual(send.call_count, 2)
+        for call, expected in zip(send.call_args_list, (names[:100], names[100:])):
+            url = app.urllib.parse.urlsplit(call.args[0])
+            self.assertEqual(url.path, "/rpc/v5/info")
+            self.assertEqual(app.urllib.parse.parse_qs(url.query), {"arg[]": expected})
+
+    def test_aur_info_empty_list_does_not_use_network(self):
+        with patch.object(app.urllib.request, "urlopen") as send:
+            self.assertEqual(app.aur_info([]), set())
+        send.assert_not_called()
+
+    def test_aur_info_rejects_invalid_and_unrequested_results(self):
+        for data in ([], {"type": "error", "results": []}, {"type": "multiinfo", "results": "bad"},
+                     {"type": "multiinfo", "results": [{}]}, {"type": "multiinfo", "results": [{"Name": "other"}]}):
+            with patch.object(app.urllib.request, "urlopen", return_value=io.BytesIO(json.dumps(data).encode())):
+                with self.assertRaises(app.Error):
+                    app.aur_info(["example"])
+
     def test_multiselect_install_keeps_exact_repo_targets_and_confirmation(self):
         command = app.transaction_command("install", [package("one"), package("two", source="extra")])
         self.assertEqual(command, ["sudo", "pacman", "-S", "--needed", "--", "cachyos-v3/one", "extra/two"])

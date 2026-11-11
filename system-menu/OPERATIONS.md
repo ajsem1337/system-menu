@@ -20,12 +20,20 @@ gate. No wrapper or helper configuration is installed; existing gates are left
 untouched. Remote Traur checks may fail to fetch/decode AUR metadata. Missing,
 invalid or incomplete reports are not clean verdicts. Review PKGBUILDs yourself.
 
-`local/unknown` means missing installation provenance, not proof of AUR origin.
-Current repo availability does not identify where an installed package came from.
+Installed sources prefer pacman's recorded `Installed From`. When missing, the
+frontend checks local sync databases (exact installed version first, then current
+availability; ties follow pacman's repository priority). Names absent from those
+databases are checked in AUR with batched exact-name RPC info requests. These
+fallback labels describe availability, not proven installation provenance; the
+preview explains the basis. AUR is colored/grouped last also in installed lists.
+`local/unknown` remains for unmatched names or unavailable lookups, never as an
+automatic synonym for AUR. A lookup failure does not block remove/downgrade.
 
 ## Network
 
-Name searches use `https://aur.archlinux.org/rpc/v5/`. Explicit Traur audits may
+Name searches use `https://aur.archlinux.org/rpc/v5/`. Installed lists also send
+names lacking recorded provenance and absent from configured repositories to
+its exact-name info endpoint (batches of up to 100). Explicit Traur audits may
 contact Traur's configured upstream services. Package managers use their normal
 configured repositories and helper behavior, including downloads and AUR builds.
 

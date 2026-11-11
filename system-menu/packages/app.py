@@ -103,8 +103,8 @@ def parse_installed(output):
         if "Name" not in fields:
             continue
         name = valid_name(fields["Name"])
-        source = fields.get("Installed From", "local/unknown")
-        if source == "None":
+        source = fields.get("Installed From", "").strip()
+        if source in ("", "None"):
             source = "local/unknown"
         records.append({"id": f"installed/{name}", "name": name, "source": text(source),
                         "version": fields.get("Version", "?"), "description": fields.get("Description", ""),
@@ -112,11 +112,77 @@ def parse_installed(output):
     return records
 
 
+def aur_info(names):
+    found = set()
+    # Exact-name lookup, including split packages; never infer AUR from -bin/-git.
+    for start in range(0, len(names), 100):
+        batch = names[start:start + 100]
+        url = "https://aur.archlinux.org/rpc/v5/info?" + urllib.parse.urlencode({"arg[]": batch}, doseq=True)
+        with urllib.request.urlopen(url, timeout=12) as response:
+            data = json.load(response)
+        if not isinstance(data, dict) or data.get("type") != "multiinfo" or not isinstance(data.get("results"), list):
+            raise Error("Invalid AUR info response")
+        for item in data["results"]:
+            if not isinstance(item, dict) or not isinstance(item.get("Name"), str):
+                raise Error("Invalid AUR package record")
+            name = valid_name(item["Name"])
+            if name not in batch:
+                raise Error("Unexpected AUR package record")
+            found.add(name)
+    return found
+
+
+def installed_catalog():
+    records = parse_installed(capture(["pacman", "-Qi"]))
+    unresolved = [record for record in records if record["source"] == "local/unknown"]
+    if not unresolved:
+        return records
+    # Local sync databases, in pacman repository priority order. No refresh.
+    repositories = {}
+    try:
+        for line in capture(["pacman", "-Sl"]).splitlines():
+            fields = line.split()
+            if len(fields) >= 3:
+                source, name, version = fields[:3]
+                repositories.setdefault(valid_name(name), []).append((valid_name(source), version))
+    except (Error, OSError) as error:
+        # Without the repo index we cannot safely distinguish foreign packages.
+        for record in unresolved:
+            record["source_detail"] = "Source lookup unavailable: " + text(error)
+        print("Source lookup unavailable: " + text(error), file=sys.stderr)
+        return records
+    foreign = []
+    for record in unresolved:
+        candidates = repositories.get(record["name"], [])
+        if candidates:
+            exact = [candidate for candidate in candidates if candidate[1] == record["version"]]
+            record["source"] = (exact or candidates)[0][0]
+            record["source_detail"] = ("Matching installed version in local sync database." if exact else
+                                       "Currently available in local sync database (version differs).")
+            record["source_detail"] += " Installation origin was not recorded; repository priority breaks ties."
+        else:
+            foreign.append(record)
+    try:
+        available = aur_info([record["name"] for record in foreign])
+    except (Error, OSError, ValueError) as error:
+        for record in foreign:
+            record["source_detail"] = "Not in configured repositories; AUR lookup unavailable: " + text(error)
+        print("AUR source lookup unavailable: " + text(error), file=sys.stderr)
+    else:
+        for record in foreign:
+            if record["name"] in available:
+                record["source"] = "aur"
+                record["source_detail"] = "Exact package name found in AUR; installation origin was not recorded."
+            else:
+                record["source_detail"] = "No recorded origin or exact name in configured repositories/AUR."
+    return records
+
+
 def catalog(mode, query=""):
     if mode == "repos":
         return parse_search(capture(["pacman", "-Ss", "."]), "repo")
     if mode == "installed":
-        return parse_installed(capture(["pacman", "-Qi"]))
+        return installed_catalog()
     if not query.strip():
         return []
     # Search is read-only. No fallback mirror or alternative package is substituted.
@@ -141,7 +207,7 @@ def search_options():
 
 def source_order(record):
     source = record["source"].casefold()
-    group = 2 if record["kind"] == "aur" else (1 if source.startswith("cachyos") else 0)
+    group = 2 if source == "aur" or record["kind"] == "aur" else (1 if source.startswith("cachyos") else 0)
     return group, source, record["name"].casefold()
 
 
@@ -199,7 +265,7 @@ def source_color(source, kind, palette):
     source = source.casefold()
     if source in ("", "local/unknown"):
         return palette.get("fg", "#cdd6f4")
-    if kind == "aur":
+    if source == "aur" or kind == "aur":
         return "#f9e2af"
     if source.startswith("cachyos"):
         return palette.get("info", "#cba6f7")
@@ -222,7 +288,7 @@ def picker_rows(records, show_state=True):
         name = text(record["name"])
         description = text(record.get("description", ""))
         source = text(record["source"])
-        label = "AUR" if record["kind"] == "aur" else source
+        label = "AUR" if source.casefold() == "aur" or record["kind"] == "aur" else source
         state = "[Installed]" if record.get("state") == "installed" else ""
         state_column = colored(f"{state:<11}", green) + " " if show_state else ""
         details = (colored(f"{record.get('version', ''):<14.14}", foreground, dim=True) + " "
@@ -306,6 +372,8 @@ def preview(database, identifier):
         raise Error("The selected package is no longer in this list.")
     print(record["name"], "—", record["version"])
     print("Source:", record["source"], "\n")
+    if record.get("source_detail"):
+        print(text(record["source_detail"]), "\n")
     if record["kind"] == "aur":
         print(text(record["description"]))
         print("\n" + record.get("extra", ""))
