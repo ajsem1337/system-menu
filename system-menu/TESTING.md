@@ -10,5 +10,10 @@ noctalia plugins lint system-menu
 ```
 
 Transactions and API responses are mocked. Real fzf filter tests need fzf 0.74.5+
-but no root access, graphical session or network. The community PR remains a draft
+but no root access, graphical session or network. Tests cover terminal argument
+arrays, configurable helpers (paru, yay and custom executable paths), propagation
+to fzf callbacks and unchanged pacman operations. A temporary stub checks direct
+helper execution; no real packages are installed or updated. Real terminal windows
+and live paru/yay transactions still need graphical/manual testing.
+The community PR remains a draft
 until portable-build screenshots, compositor testing and human review are complete.

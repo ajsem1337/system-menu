@@ -3,19 +3,20 @@
 ## Package actions
 
 - Repositories: `sudo pacman -S --needed -- repo/package ...`.
-- AUR: `paru -S --needed --aur -- package ...`.
+- AUR: `HELPER -S --needed --aur -- package ...`, using the configured executable
+  (`paru` by default; `yay` or another compatible helper can be selected).
 - Remove: `sudo pacman -Rns -- package ...`; review dependency removals.
 - Downgrade: `sudo downgrade --cached-only --ignore=never`, retaining configured
   system caches and adding existing paru/yay caches. No Arch Linux Archive
   fallback or automatic IgnorePkg edits. Old builds may break dependencies.
-- Update: `paru -Syu`, not a partial database refresh.
+- Update: `HELPER -Syu`, not a partial database refresh.
 
 Mixed installs run repositories first, then AUR. Failure stops subsequent
 transactions but does not undo completed ones. Duplicate package names from
 different sources are rejected. All package-manager confirmations remain.
 
 Alt+T runs `traur scan NAME --json`. This is manual, not an automatic makepkg
-gate. No wrapper or paru configuration is installed; existing gates are left
+gate. No wrapper or helper configuration is installed; existing gates are left
 untouched. Remote Traur checks may fail to fetch/decode AUR metadata. Missing,
 invalid or incomplete reports are not clean verdicts. Review PKGBUILDs yourself.
 
@@ -44,7 +45,12 @@ Existing fzf theme color declarations are read from
 retain their usual caches/logs. Acknowledging action results clears the terminal's
 screen and scrollback, not redirected output or saved logs.
 
-Luau launches Kitty/Python. The frontend invokes fzf, its own search/preview/resize
+Luau launches the configured terminal/Python with direct argument arrays. Terminal
+options and run-program arguments are separate lists, not shell commands. The
+configured AUR helper is passed as one executable name/path and preserved in fzf
+callbacks; failed commands never switch helpers. Custom helper caches are not
+automatically discovered beyond the standard paru/yay cache paths above.
+The frontend invokes fzf, its own search/preview/resize
 helpers, cat and the tools for the chosen action. About invokes fastfetch, lsblk
 and `noctalia --version`. Only confirmed package actions invoke sudo; the plugin
 itself is not run as root. It creates no services, timers, repository settings,

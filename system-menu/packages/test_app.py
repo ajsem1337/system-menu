@@ -2,6 +2,7 @@ import contextlib
 import hashlib
 import io
 import json
+import shlex
 import subprocess
 from pathlib import Path
 import tempfile
@@ -17,6 +18,74 @@ def package(name="example", kind="repo", source="cachyos-v3"):
 
 
 class PackageMenuTests(unittest.TestCase):
+    def setUp(self):
+        helper = patch.object(app, "AUR_HELPER", "paru")
+        helper.start()
+        self.addCleanup(helper.stop)
+
+    def test_custom_helper_is_used_for_aur_search_install_and_update(self):
+        for helper in ("paru", "yay", "/opt/my helper/bin/custom-helper"):
+            with self.subTest(helper=helper):
+                app.configure_helper(helper)
+                with patch.object(app, "capture", return_value="aur/example 1.0\n    Example\n") as capture:
+                    self.assertEqual(app.catalog("aur", "example")[0]["name"], "example")
+                self.assertEqual(capture.call_args.args[0], [helper, "-Ssa", "--color", "never", "--", "example"])
+                self.assertEqual(app.transaction_command("install", [package(kind="aur", source="aur")]),
+                                 [helper, "-S", "--needed", "--aur", "--", "example"])
+                self.assertEqual(app.update_command(), [helper, "-Syu"])
+                self.assertEqual(app.transaction_command("install", [package()])[0:2], ["sudo", "pacman"])
+                self.assertEqual(app.transaction_command("remove", [package(kind="installed")])[0:2], ["sudo", "pacman"])
+
+    def test_helper_cli_and_callback_commands_preserve_executable_as_one_argument(self):
+        helper = "/opt/helper with spaces;$(literal)/yay"
+        with patch.object(app, "main") as main:
+            app.run(["--aur-helper", helper])
+            main.assert_called_once_with()
+        command = app.frontend_command("--preview", "/tmp/catalog.json")
+        self.assertEqual(shlex.split(shlex.join(command)), command)
+        self.assertEqual(command[3:5], ["--aur-helper", helper])
+        with patch.object(app, "capture", return_value=""), patch.object(app.subprocess, "run", return_value=subprocess.CompletedProcess([], 130, "")) as run:
+            app.picker([], "Install", merged=True)
+        args = run.call_args.args[0]
+        for option in ("--bind=start:", "--preview=", "--bind=shift-left:"):
+            self.assertTrue(any(arg.startswith(option) and shlex.quote(helper) in arg for arg in args))
+
+    def test_helper_validation_rejects_empty_control_characters_and_options(self):
+        for value in ("", "  ", "--noconfirm", "bad\ncommand", "bad\x00command", "bad\x7fcommand"):
+            with self.subTest(value=value), self.assertRaises(app.Error):
+                app.configure_helper(value)
+        with self.assertRaises(app.Error):
+            app.run(["--aur-helper"])
+
+    def test_custom_helper_is_executed_without_shell_parsing(self):
+        with tempfile.TemporaryDirectory() as directory:
+            helper = Path(directory) / "helper with spaces;literal"
+            helper.write_text("#!/bin/sh\nprintf 'aur/example 1.0\\n    Example\\n'\n")
+            helper.chmod(0o700)
+            with contextlib.redirect_stdout(io.StringIO()) as output:
+                app.run(["--aur-helper", str(helper), "--list", "aur", "example"])
+        self.assertEqual(json.loads(output.getvalue())[0]["name"], "example")
+
+    def test_update_action_runs_selected_helper_and_keeps_confirmation(self):
+        app.configure_helper("yay")
+        selection = ("", "", [{"id": "update"}])
+        with patch.object(app, "picker", side_effect=[selection, None]), patch.object(app, "confirm", return_value=True) as confirm, patch.object(app.subprocess, "call", return_value=0) as call, patch.object(app, "pause"):
+            app.main()
+        self.assertIn("yay", confirm.call_args.args[0])
+        call.assert_called_once_with(["yay", "-Syu"])
+        with patch.object(app, "picker", side_effect=[selection, None]), patch.object(app, "confirm", return_value=False), patch.object(app.subprocess, "call") as call:
+            app.main()
+        call.assert_not_called()
+
+    def test_missing_custom_helper_does_not_fall_back_or_block_repo_commands(self):
+        app.configure_helper("missing-custom-helper")
+        records = [package(kind="aur", source="aur")]
+        with patch.object(app, "confirm", return_value=True), patch.object(app.subprocess, "call", side_effect=FileNotFoundError("missing helper")) as call, contextlib.redirect_stdout(io.StringIO()):
+            with self.assertRaises(FileNotFoundError):
+                app.perform("install", records)
+        call.assert_called_once_with(["missing-custom-helper", "-S", "--needed", "--aur", "--", "example"])
+        self.assertEqual(app.transaction_command("install", [package()])[0:2], ["sudo", "pacman"])
+
     def filter_records(self, records, query):
         result = subprocess.run(["fzf", *app.search_options(), "--filter=" + query],
                                 input=app.picker_rows(sorted(records, key=app.source_order)), text=True, capture_output=True)

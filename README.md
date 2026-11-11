@@ -2,8 +2,13 @@
 
 ![Made with AI](https://img.shields.io/badge/Made%20with-AI-76ddcf)
 
-Noctalia v5 menu with an Arch package browser, btop, Kitty and system information.
+Noctalia v5 menu with an Arch package browser, btop, a terminal of your choice
+and system information. Bring your own compatible AUR helper, too.
 Inspired by the GNOME [Logo Menu](https://github.com/Aryan20/Logomenu) extension.
+
+Set the terminal and AUR helper in **Settings → Plugins → System Menu**.
+Defaults are Kitty and paru; yay or another helper with a compatible CLI can be
+used instead. See [configuration and examples](system-menu/README.md#configuration).
 
 ## Install
 

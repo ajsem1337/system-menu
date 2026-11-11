@@ -4,7 +4,8 @@
 
 A Noctalia menu with Packages, Task Manager, Terminal and About This System.
 Inspired by the GNOME [Logo Menu](https://github.com/Aryan20/Logomenu) extension.
-The menu and About panel are native Luau; Packages runs in Kitty with fzf.
+The menu and About panel are native Luau; Packages runs with fzf in a terminal
+of your choice. Bring your own compatible AUR helper for the package browser.
 
 ## Plugin
 
@@ -19,8 +20,9 @@ The menu and About panel are native Luau; Packages runs in Kitty with fzf.
 
 Install dependencies separately:
 
-- **Menu and terminals:** `python3` (3.11+), `kitty`.
-- **Packages:** `fzf` (0.74.5+), `pacman`, `pacman-conf`, `paru`, `sudo`, `cat`.
+- **Menu and terminals:** `python3` (3.11+) and your configured terminal (default: `kitty`).
+- **Packages:** `fzf` (0.74.5+), `pacman`, `pacman-conf`, your configured AUR helper
+  (default: `paru`; `yay` or another compatible helper can be used), `sudo`, `cat`.
 - **About:** `fastfetch`, `lsblk` (util-linux).
 - **Task Manager:** `btop` (btop or btop++).
 - **Optional:** [`downgrade`](https://github.com/archlinux-downgrade/downgrade) for
@@ -29,6 +31,43 @@ Install dependencies separately:
 
 Missing optional tools do not block unrelated features. No scanner fork,
 makepkg wrapper, private configuration or API key is bundled.
+
+## Configuration
+
+Open **Settings → Plugins → System Menu** (gear icon). These settings are shared
+by the menu, including when opened directly through IPC:
+
+| Setting | Default | What to enter |
+| --- | --- | --- |
+| Terminal executable | `kitty` | Executable name or absolute path, without arguments |
+| Terminal arguments | Empty list | Optional terminal options; one list item per argument |
+| Run-program arguments | `-e` | Arguments before the program for Packages and Task Manager |
+| AUR helper executable | `paru` | `paru`, `yay`, or another compatible helper's executable name/path |
+
+The **Terminal** action uses the executable and terminal arguments only.
+**Packages** and **Task Manager** also append the run-program arguments and
+the program to run. For example:
+
+| Terminal executable | Run-program arguments |
+| --- | --- |
+| `kitty`, `foot`, `alacritty`, `konsole`, `xterm` | One item: `-e` |
+| `gnome-terminal` | One item: `--` |
+
+For a different terminal or wrapper, use its documented run-program arguments;
+an empty list is allowed. Terminal sizing and appearance use your existing
+terminal configuration. Paths and arguments are passed directly, not evaluated
+by a shell: aliases, `~`, `$VARIABLE`, pipelines and shell command strings are
+not expanded. Put each argument in its own list item, without shell quotes.
+
+The package browser accepts your choice of AUR helper, **provided its CLI is
+compatible** with `-S --needed --aur -- PACKAGE...`, `-Ssa --color never -- QUERY`
+and `-Syu`, including paru/yay-style search output for `--list aur`. Arbitrary
+helper CLIs are not automatically translated. Repository installs and removals
+still use pacman; live AUR search uses the read-only AUR RPC. Existing helper
+configuration and confirmations remain in effect. A failed/missing helper does
+not trigger a fallback to another one. Custom helper caches are not discovered
+automatically: cache-only downgrade retains the configured pacman caches and
+the existing standard paru/yay cache paths.
 
 ## Usage
 
@@ -43,7 +82,7 @@ noctalia msg panel-toggle ajsem1337/system-menu:about
 
 - **Packages:** merged repo/AUR search, multiselect install/uninstall,
   cache-only downgrade, VirusTotal lookup and full system update.
-- **Task Manager / Terminal:** btop and Kitty, using your existing configuration.
+- **Task Manager / Terminal:** btop and your chosen terminal, using your existing configuration.
 - **About This System:** hardware, disks and software; on-demand Refresh,
   expandable Technical Details and Copy Information. No resource polling.
 
@@ -66,11 +105,11 @@ selections. Results remain visible until Enter, then the terminal is cleared.
 
 ## Notes
 
-- Normal pacman/paru confirmations remain. Exact `repo/package` targets are kept;
+- Normal pacman/helper confirmations remain. Exact `repo/package` targets are kept;
   mixed selections run repo and AUR transactions separately, without rollback.
 - Downgrade uses local caches only. Review old builds and dependency changes.
 - Traur is a **manual heuristic audit**, not a sandbox or automatic installation
-  gate. Failed/missing reports provide no safety verdict. Existing paru settings
+  gate. Failed/missing reports provide no safety verdict. Existing helper settings
   are untouched.
 - VirusTotal retrieves existing SHA-256 reports; **no uploads**. Supply your own
   key through `VT_API_KEY` or the hidden prompt, stored at
