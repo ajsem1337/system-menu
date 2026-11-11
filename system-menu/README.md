@@ -45,7 +45,7 @@ If no matching icon is installed, a generic system icon is used. Detection is
 local, never executes os-release as a script and does not download icons.
 This does not change the Arch-specific requirements for package actions.
 
-## Configuration
+## Settings
 
 Open **Settings → Plugins → System Menu** (gear icon). These settings are shared
 by the menu, including when opened directly through IPC:
