@@ -23,7 +23,7 @@ automatically. See [operations](OPERATIONS.md) for the full command list.
 - `python3` (3.11+), a terminal (default `kitty`).
 - `fzf` (0.74.5+) and a compatible AUR helper (default `paru`; `yay` or a custom
   executable also works).
-- `btop` for Task Manager; `fastfetch` for About.
+- Mission Center (`mission-center` package, `missioncenter` executable) for Task Manager; `fastfetch` for About.
 - Optional: `downgrade` for cached versions, `traur` for manual audits,
   `xdg-open` for VirusTotal browser links.
 
@@ -37,7 +37,7 @@ Open **Settings → Plugins → System Menu**.
 | AUR helper executable | `paru` | Compatible executable name/path |
 | Advanced terminal options | Off | Show the two argument lists below |
 | Terminal arguments (advanced) | Empty | One list item per option |
-| Run-program arguments (advanced) | `-e` | Before Packages/btop; use `--` for GNOME Terminal |
+| Run-program arguments (advanced) | `-e` | Before the package browser; use `--` for GNOME Terminal |
 
 Enable **Advanced terminal options** in this plugin's settings to edit the lists.
 This switch is independent of Noctalia's global **Show advanced** filter.
@@ -57,7 +57,8 @@ noctalia msg panel-toggle ajsem1337/system-menu:about
 ```
 
 - **Packages:** install/uninstall, cache-only downgrade, update and VirusTotal.
-- **Task Manager / Terminal:** btop or a terminal using your existing settings.
+- **Task Manager:** opens Mission Center directly, without a terminal.
+- **Terminal:** opens your configured terminal using your existing settings.
 - **About:** hardware/software, on-demand refresh, technical details and copy.
 
 | Key | Action |

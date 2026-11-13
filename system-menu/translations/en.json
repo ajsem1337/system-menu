@@ -14,7 +14,7 @@
     },
     "terminal_exec_args": {
       "label": "Run-program arguments",
-      "description": "Before Packages/btop: -e for Kitty/foot/Alacritty, -- for GNOME Terminal; empty if not needed."
+      "description": "Before the package browser: -e for Kitty/foot/Alacritty, -- for GNOME Terminal; empty if not needed."
     },
     "aur_helper": {
       "label": "AUR helper executable",

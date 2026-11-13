@@ -112,8 +112,8 @@ for _, text in ipairs({ "Packages", "Task Manager", "Terminal", "About This Syst
 end
 menu.openTaskManager()
 assert(menuState.closed)
-assert(menuState.launches[1].argv[1] == "kitty")
-assert(menuState.launches[1].argv[#menuState.launches[1].argv] == "btop")
+assert(#menuState.launches[1].argv == 1)
+assert(menuState.launches[1].argv[1] == "missioncenter")
 menu.openPackages()
 assert(menuState.launches[2].argv[1] == "kitty")
 assert(menuState.launches[2].argv[5] == "/test/plugin/packages/app.py")
@@ -145,10 +145,8 @@ for _, example in ipairs({
     equalArgs(customState.launches[1].argv, { example.terminal, "--custom", "value with spaces;$(literal)" })
     local expected = { example.terminal, "--custom", "value with spaces;$(literal)" }
     for _, arg in ipairs(example.exec) do table.insert(expected, arg) end
-    table.insert(expected, "btop")
     custom.openTaskManager()
-    equalArgs(customState.launches[2].argv, expected)
-    table.remove(expected)
+    equalArgs(customState.launches[2].argv, { "missioncenter" })
     for _, arg in ipairs({ "python3", "-I", "/test/plugin/packages/app.py", "--aur-helper", "/opt/custom helper/yay" }) do
         table.insert(expected, arg)
     end
@@ -165,11 +163,22 @@ for _, key in ipairs({ "terminal", "aur_helper" }) do
         assert(invalidState.error and not invalidState.closed and #invalidState.launches == 0)
     end
 end
+local noTerminal, noTerminalState = environment()
+noTerminalState.config.terminal = ""
+assert(loadfile("menu.luau", "t", noTerminal))()
+noTerminal.openTaskManager()
+equalArgs(noTerminalState.launches[1].argv, { "missioncenter" })
+assert(noTerminalState.closed and not noTerminalState.error)
+
 local rejected, rejectedState = environment()
 rejectedState.reject = true
 assert(loadfile("menu.luau", "t", rejected))()
 rejected.openTerminal()
 assert(rejectedState.error)
+rejectedState.error = nil
+rejected.openTaskManager()
+assert(rejectedState.error)
+equalArgs(rejectedState.launches[2].argv, { "missioncenter" })
 
 local widget, widgetState = environment()
 widget.noctalia.setUpdateInterval = function(interval) assert(interval == 3600000) end

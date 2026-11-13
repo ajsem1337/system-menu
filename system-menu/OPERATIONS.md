@@ -45,7 +45,8 @@ are preserved, not detected or guaranteed. Traur is a heuristic, not a sandbox.
 - Fzf theme color declarations are read, never executed. Acknowledging an action
   clears that terminal's screen/scrollback. External tools retain their own logs.
 
-Luau launches terminal/Python with argument arrays. Python invokes fzf, its own
+Task Manager launches `missioncenter` directly, independently of terminal settings.
+Luau launches Mission Center and terminal/Python with argument arrays. Python invokes fzf, its own
 callbacks, cat and the selected tools. About uses fastfetch, lsblk and Noctalia's
 version plus curated proc/sysfs/OS-release data: no IP/MAC addresses, serials or
 machine IDs. Copy includes hostname/hardware. Logo lookup reads OS-release as

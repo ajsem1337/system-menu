@@ -39,7 +39,7 @@ function openPackages()
 end
 
 function openTaskManager()
-    launchTerminal({ "btop" })
+    launch({ "missioncenter" })
 end
 
 function openTerminal()
@@ -63,7 +63,7 @@ function onOpen()
         ui.button({ text = "Packages", glyph = "package", variant = "ghost", contentAlign = "start",
             controlSize = "lg", tooltip = "Find, install, uninstall and downgrade packages", onClick = "openPackages" }),
         ui.button({ text = "Task Manager", glyph = "activity", variant = "ghost", contentAlign = "start",
-            controlSize = "lg", tooltip = "btop — resource and process management", onClick = "openTaskManager" }),
+            controlSize = "lg", tooltip = "Mission Center — resource and process management", onClick = "openTaskManager" }),
         ui.button({ text = "Terminal", glyph = "terminal", variant = "ghost", contentAlign = "start",
             controlSize = "lg", tooltip = "Open your configured terminal", onClick = "openTerminal" }),
         ui.separator({ spacing = 4 }),
