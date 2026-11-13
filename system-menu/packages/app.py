@@ -681,9 +681,14 @@ def virustotal():
     return True  # A real report/link was displayed and should remain readable.
 
 
-def pause():
-    input("\nEnter to return to Packages…")
+def pause(destination="Packages"):
+    input(f"\nEnter to return to {destination}…")
     clear_console()
+
+
+def show_error(error):
+    print("\nSTOP:", text(error))
+    print("No automatic retry, alternative package source or security bypass was used.")
 
 
 def browse(action):
@@ -691,12 +696,11 @@ def browse(action):
     while True:
         print("Loading " + mode + " packages…", flush=True)
         records = sorted(catalog(mode, query), key=source_order)
-        if action == "orphans" and not records:
-            return "No orphaned dependency packages found."
         title = {"install": "Find & install", "remove": "Installed / uninstall", "orphans": "Remove orphans", "downgrade": "Downgrade (cache only)"}[action]
         hints = "Finish selections before changing the search" if action == "install" else ""
         if action == "orphans":
-            hints = "Unused dependencies only · Select packages to remove · Pacman confirms the final removal list"
+            hints = ("Unused dependencies only · Select packages to remove · Pacman confirms the final removal list"
+                     if records else "No orphaned dependency packages found · Esc back")
         selected = picker(records, title + (" — repos + AUR" if action == "install" else " — installed"),
                           query, keys=hints, merged=action == "install", show_state=action == "install")
         if selected is None:
@@ -704,13 +708,18 @@ def browse(action):
         query, key, chosen = selected
         if not chosen:
             continue
-        if key == "alt-t":
-            audit(chosen)
-            pause()  # An explicitly requested report needs time to be read.
-        elif key == "":
-            perform(action, chosen)
-            clear_console()
-            return
+        try:
+            if key == "alt-t":
+                audit(chosen)
+                pause(title)  # Keep explicit reports readable, then restore this list.
+            elif key == "":
+                perform(action, chosen)
+                clear_console()
+                # Reload this catalog, keeping its query and mode. Only Esc
+                # leaves the list and returns to the main Packages menu.
+        except (Error, OSError) as error:
+            show_error(error)
+            pause(title)
 
 
 def main():
@@ -725,16 +734,14 @@ def main():
     ]
     records = [{"id": key, "name": name, "source": "", "description": description, "kind": "menu"}
                for key, name, description in choices]
-    notice = ""
     while True:
         try:
-            selected = picker(records, "Packages", multi=False, preview=False, searchable=False, keys=notice)
-            notice = ""
+            selected = picker(records, "Packages", multi=False, preview=False, searchable=False)
             if selected is None or not selected[2] or selected[2][0]["id"] == "exit":
                 return
             action = selected[2][0]["id"]
             if action in ("install", "remove", "orphans", "downgrade"):
-                notice = browse(action) or ""
+                browse(action)
             elif action == "vt":
                 if virustotal():
                     pause()
@@ -744,8 +751,7 @@ def main():
                     raise Error(f"System update stopped (exit {code}). No fallback was attempted.")
                 clear_console()
         except (Error, OSError) as error:
-            print("\nSTOP:", text(error))
-            print("No automatic retry, alternative package source or security bypass was used.")
+            show_error(error)
             pause()
         except (KeyboardInterrupt, EOFError):
             return

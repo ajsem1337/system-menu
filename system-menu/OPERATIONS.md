@@ -24,8 +24,9 @@ without rollback. Duplicate package names are rejected. Downgrade retains pacman
 caches plus standard paru/yay caches, not archives or custom-helper cache discovery.
 Selecting a package action delegates to the package manager without a duplicate
 yes/no prompt; sudo authentication and the manager's own transaction confirmation
-are unchanged. Successful operations return immediately. Non-zero exits are
-reported and wait for Enter; no automatic retry or fallback is performed.
+are unchanged. Successful operations return to the same refreshed catalog and
+query, not the main menu. Non-zero exits are reported and wait for Enter before
+restoring that list; no automatic retry or fallback is performed.
 No services, system settings or scanner
 configuration are installed or changed.
 

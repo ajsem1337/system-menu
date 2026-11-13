@@ -595,14 +595,16 @@ class PackageMenuTests(unittest.TestCase):
             self.assertEqual(app.catalog("orphans"), records[:1])
         capture.assert_called_once_with(["pacman", "-Qdtq"], empty_ok=True)
 
-    def test_empty_orphans_return_to_menu_without_prompt_or_transaction(self):
+    def test_empty_orphans_stay_in_their_list_without_prompt_or_transaction(self):
         selection = ("", "", [{"id": "orphans"}])
-        with patch.object(app, "picker", side_effect=[selection, None]) as picker, patch.object(app, "capture", return_value=""), patch.object(app, "installed_catalog") as installed, patch.object(app, "pause") as pause, patch.object(app.subprocess, "call") as call, contextlib.redirect_stdout(io.StringIO()):
+        with patch.object(app, "picker", side_effect=[selection, None, None]) as picker, patch.object(app, "capture", return_value=""), patch.object(app, "installed_catalog") as installed, patch.object(app, "pause") as pause, patch.object(app.subprocess, "call") as call, contextlib.redirect_stdout(io.StringIO()):
             app.main()
         call.assert_not_called()
         pause.assert_not_called()
         installed.assert_not_called()
-        self.assertIn("No orphaned", picker.call_args.kwargs["keys"])
+        orphan_view = picker.call_args_list[1]
+        self.assertEqual(orphan_view.args[0], [])
+        self.assertIn("No orphaned", orphan_view.kwargs["keys"])
 
     def test_orphan_removal_rechecks_selection_and_preserves_native_confirmation(self):
         records = [package("unused", "installed")]
@@ -641,11 +643,37 @@ class PackageMenuTests(unittest.TestCase):
             app.perform("install", [package()])
         call.assert_called_once_with(["sudo", "pacman", "-S", "--needed", "--", "cachyos-v3/example"])
 
-    def test_successful_package_operation_returns_without_pause(self):
-        selection = ("", "", [package()])
-        with patch.object(app, "catalog", return_value=[]), patch.object(app, "picker", side_effect=[selection, None]), patch.object(app, "perform") as perform, patch.object(app, "pause") as pause, contextlib.redirect_stdout(io.StringIO()):
+    def test_successful_operations_reload_the_same_list_and_keep_the_query(self):
+        for action, mode in [("install", "repos"), ("remove", "installed"), ("downgrade", "installed"), ("orphans", "orphans")]:
+            record = package(kind="repo" if action == "install" else "installed")
+            selection = ("systemd", "", [record])
+            with self.subTest(action=action), patch.object(app, "catalog", return_value=[record]) as catalog, patch.object(app, "picker", side_effect=[selection, None]) as picker, patch.object(app, "perform") as perform, patch.object(app, "pause") as pause, contextlib.redirect_stdout(io.StringIO()):
+                app.browse(action)
+            perform.assert_called_once_with(action, [record])
+            pause.assert_not_called()
+            self.assertEqual([call.args for call in catalog.call_args_list], [(mode, ""), (mode, "systemd")])
+            self.assertEqual(picker.call_count, 2)
+            self.assertEqual(picker.call_args_list[0].args[1], picker.call_args_list[1].args[1])
+            self.assertEqual(picker.call_args_list[1].args[2], "systemd")
+
+    def test_failed_operation_waits_then_restores_the_same_list(self):
+        record = package()
+        selection = ("systemd", "", [record])
+        with patch.object(app, "catalog", return_value=[record]), patch.object(app, "picker", side_effect=[selection, None]) as picker, patch.object(app, "perform", side_effect=app.Error("operation failed")) as perform, patch.object(app, "pause") as pause, contextlib.redirect_stdout(io.StringIO()) as output:
             app.browse("install")
-        perform.assert_called_once()
+        self.assertIn("operation failed", output.getvalue())
+        pause.assert_called_once_with("Find & install")
+        self.assertEqual(picker.call_count, 2)
+        self.assertEqual(picker.call_args.args[2], "systemd")
+        perform.assert_called_once()  # Redisplaying the list must not retry.
+
+    def test_removing_last_orphan_keeps_the_empty_orphan_screen(self):
+        record = package(kind="installed")
+        with patch.object(app, "catalog", side_effect=[[record], []]), patch.object(app, "picker", side_effect=[("", "", [record]), None]) as picker, patch.object(app, "perform"), patch.object(app, "pause") as pause, contextlib.redirect_stdout(io.StringIO()):
+            app.browse("orphans")
+        self.assertEqual(picker.call_count, 2)
+        self.assertEqual(picker.call_args.args[0], [])
+        self.assertIn("No orphaned", picker.call_args.kwargs["keys"])
         pause.assert_not_called()
 
     def test_failed_package_operation_is_displayed_and_paused(self):

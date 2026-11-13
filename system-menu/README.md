@@ -90,8 +90,8 @@ uses local repositories then exact-name AUR metadata, not proven provenance.
 **Remove orphans**, directly below Installed / uninstall, lists only packages
 reported by `pacman -Qdtq`: dependencies no longer required by installed packages.
 Select the ones to remove; the selection is rechecked before invoking pacman.
-Pacman retains its normal final removal confirmation. An empty list returns to
-the menu without sudo or an Enter prompt.
+Pacman retains its normal final removal confirmation. An empty orphan list shows
+an informational header, without sudo or an Enter prompt; Esc returns to the menu.
 
 ### VirusTotal API key
 
@@ -112,7 +112,9 @@ still runs independently; incomplete/failed scans do not approve anything.
 
 Package actions go straight to the package manager, without an extra menu-level
 yes/no prompt. Sudo authentication and package-manager confirmations remain.
-Successful operations return immediately; failures remain visible until Enter.
+Successful package operations return immediately to the same refreshed list,
+preserving the search query. Failures remain visible until Enter, then return to
+that same list without retrying. Esc leaves the list for the main Packages menu.
 Explicitly requested audit/VirusTotal reports also wait so they can be read.
 Downgrades use local caches only and can
 break dependencies. VirusTotal retrieves existing hash reports: no file uploads,
