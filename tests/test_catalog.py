@@ -70,6 +70,21 @@ class CatalogTests(unittest.TestCase):
         self.assertEqual({option["value"] for option in command_format["options"]}, {"argv", "quoted"})
         self.assertEqual(command_format["visible_when"], {"key": "show_terminal_arguments", "values": ["true"]})
 
+    def test_settings_are_grouped_terminal_packages_then_task_manager(self):
+        self.assertEqual(list(self.settings), [
+            "terminal", "show_terminal_arguments", "terminal_args", "terminal_exec_args", "terminal_command_format",
+            "packages_mode", "packages_command", "packages_args",
+            "monitor_mode", "monitor_command", "monitor_args",
+        ])
+
+    def test_readme_documents_all_settings_and_entries(self):
+        readme = (PLUGIN / "README.md").read_text()
+        for key in self.settings:
+            self.assertIn(f"`{key}`", readme)
+        for kind in ("widget", "panel"):
+            for entry in self.manifest[kind]:
+                self.assertIn(f"`{entry['id']}`", readme)
+
     def test_widget_does_not_bundle_or_invoke_the_package_frontend(self):
         self.assertFalse((PLUGIN / "packages/app.py").exists())
         sources = "\n".join(path.read_text() for path in PLUGIN.glob("*.luau"))

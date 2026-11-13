@@ -41,7 +41,7 @@ end
 local function terminalCommand(program)
     local terminal = executable(noctalia.getConfig("terminal"), "Terminal")
     if not terminal then return nil end
-    local hint = noctalia.getConfig("show_terminal_arguments") and "" or " (enable Advanced terminal options to edit)"
+    local hint = noctalia.getConfig("show_terminal_arguments") and "" or " (enable Terminal — advanced options to edit)"
     local args = arguments(noctalia.getConfig("terminal_args"), "Terminal arguments" .. hint)
     if not args then return nil end
     local argv = { terminal }
