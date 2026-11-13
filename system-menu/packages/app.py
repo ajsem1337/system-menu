@@ -188,6 +188,11 @@ def catalog(mode, query=""):
         return parse_search(capture(["pacman", "-Ss", "."]), "repo")
     if mode == "installed":
         return installed_catalog()
+    if mode == "orphans":
+        names = orphan_names()
+        if not names:
+            return []
+        return [record for record in installed_catalog() if record["name"] in names]
     if not query.strip():
         return []
     # Search is read-only. No fallback mirror or alternative package is substituted.
@@ -336,6 +341,8 @@ def picker(records, title, query="", multi=True, keys="", preview=True, searchab
         database = Path(directory) / "catalog.json"
         database.write_text(json.dumps({record["id"]: record for record in records}))
         header = "Tab multi · Enter confirm · Esc back · Shift+←/→ resize\nCtrl+A all · Ctrl+D clear · Alt+P preview · Alt+T Traur audit" if multi else "↑/↓ choose · Enter open · Esc exit"
+        if multi and preview:
+            header += "\nAlt+D compact / full details · Alt+B AUR PKGBUILD"
         if keys:
             header += "\n" + keys
         if multi:
@@ -360,7 +367,7 @@ def picker(records, title, query="", multi=True, keys="", preview=True, searchab
         if multi:
             args += [f"--multi={MAX_BATCH}", "--bind=ctrl-a:select-all,ctrl-d:deselect-all"]
         if preview:
-            (Path(directory) / "preview-mode").write_text("summary")
+            (Path(directory) / "preview-mode").write_text("details")
             command = shlex.join(frontend_command("--preview", str(database))) + " {1}"
             size_file = Path(directory) / "preview-size"
             size_file.write_text("48")
@@ -389,7 +396,26 @@ def preview_fields(fields):
                             initial_indent=f"{label:<16}: ", subsequent_indent=" " * 18, break_on_hyphens=False))
 
 
-def preview_aur(directory, record, mode):
+def preview_package_fields(fields, mode):
+    """One field order and formatter for repository, AUR and installed packages."""
+    order = ["Version", "Description", "URL", "Architecture", "Licenses", "Groups",
+             "Provides", "Depends On", "Optional Deps", "Required By", "Optional For",
+             "Conflicts With", "Replaces", "Download Size", "Installed Size", "Packager",
+             "Maintainer", "Votes", "Popularity", "AUR version", "Status", "Make Deps",
+             "Check Deps", "Package Base", "Keywords", "Build Date", "Install Date",
+             "Install Reason", "Install Script", "Validated By", "Submitted", "Modified",
+             "Package URL"]
+    if mode != "details":
+        order = ["Version", "Description", "Licenses", "Depends On", "Installed Size",
+                 "Packager", "Required By", "Maintainer", "Votes", "Popularity", "AUR version", "Status"]
+    selected = [(key, fields[key]) for key in order if key in fields]
+    if mode == "details":
+        selected += [(key, value) for key, value in fields.items()
+                     if key not in order and key not in ("Name", "Repository", "Installed From")]
+    preview_fields(selected)
+
+
+def preview_aur(directory, record, mode, local_fields=None):
     name = valid_name(record["name"])
     metadata = directory / ("aur-" + name + ".json")
     try:
@@ -414,36 +440,33 @@ def preview_aur(directory, record, mode):
             content = re.sub(r"[\x00-\x08\x0b-\x1f\x7f-\x9f]", "", recipe.read_text(errors="replace"))
             print(content)
             return
-        if record["kind"] == "installed":
-            if mode == "details":
-                print("AUR metadata")
-            fields = []
-        else:
-            fields = [("Version", item.get("Version", record["version"])),
-                      ("Description", item.get("Description") or record.get("description", ""))]
-            fields += [(label, item.get(key, [])) for label, key in (
-                ("Licenses", "License"), ("Depends On", "Depends"))]
-        fields += [("Maintainer", item.get("Maintainer") or "Orphaned"),
-                   ("Votes", item.get("NumVotes", "?")), ("Popularity", item.get("Popularity", "?"))]
+        fields = dict(local_fields or {})
+        if record["kind"] != "installed":
+            fields.update({"Version": item.get("Version", record["version"]),
+                           "Description": item.get("Description") or record.get("description", "")})
+            fields.update((label, item.get(key, [])) for label, key in (
+                ("Licenses", "License"), ("Depends On", "Depends"), ("URL", "URL"),
+                ("Groups", "Groups"), ("Provides", "Provides"), ("Optional Deps", "OptDepends"),
+                ("Conflicts With", "Conflicts"), ("Replaces", "Replaces")))
+        fields.update({"Maintainer": item.get("Maintainer") or "Orphaned",
+                       "Votes": item.get("NumVotes", "?"), "Popularity": item.get("Popularity", "?")})
         if record["kind"] == "installed" and item.get("Version") and item["Version"] != record["version"]:
-            fields.append(("AUR version", item["Version"]))
+            fields["AUR version"] = item["Version"]
         if item.get("OutOfDate"):
-            fields.append(("Status", "Flagged out-of-date"))
+            fields["Status"] = "Flagged out-of-date"
         if mode == "details":
-            if record["kind"] != "installed":
-                fields += [(label, item.get(key, [])) for label, key in (
-                    ("URL", "URL"), ("Groups", "Groups"), ("Provides", "Provides"),
-                    ("Optional Deps", "OptDepends"), ("Conflicts With", "Conflicts"), ("Replaces", "Replaces"))]
-            fields += [(label, item.get(key, [])) for label, key in (
+            fields.update((label, item.get(key, [])) for label, key in (
                 ("Make Deps", "MakeDepends"), ("Check Deps", "CheckDepends"),
-                ("Package Base", "PackageBase"), ("Keywords", "Keywords"))]
-            fields.append(("Package URL", "https://aur.archlinux.org/packages/" + name))
+                ("Package Base", "PackageBase"), ("Keywords", "Keywords")))
+            fields["Package URL"] = "https://aur.archlinux.org/packages/" + name
             for label, key in (("Submitted", "FirstSubmitted"), ("Modified", "LastModified")):
                 if item.get(key):
-                    fields.append((label, datetime.datetime.fromtimestamp(item[key], datetime.timezone.utc).isoformat(timespec="minutes")))
-        preview_fields(fields)
+                    fields[label] = datetime.datetime.fromtimestamp(item[key], datetime.timezone.utc).isoformat(timespec="minutes")
+        preview_package_fields(fields, mode)
     except (Error, OSError, ValueError, TypeError, OverflowError) as error:
-        if record["kind"] != "installed":
+        if local_fields:
+            preview_package_fields(local_fields, mode)
+        elif record["kind"] != "installed":
             print(text(record.get("description", "")))
         print("\nAUR preview unavailable:", text(error))
 
@@ -455,28 +478,25 @@ def preview(database, identifier):
     print(text(record["name"]), flush=True)
     directory = Path(database).parent
     mode_file = directory / "preview-mode"
-    mode = mode_file.read_text() if mode_file.exists() else "summary"
+    mode = mode_file.read_text() if mode_file.exists() else "details"
     if mode == "details" and record.get("source_detail"):
         print(text(record["source_detail"]))
     is_aur = record["source"].casefold() == "aur" or record["kind"] == "aur"
+    fields = {}
     if record["kind"] != "aur" and not (is_aur and mode == "recipe"):
         operation = "-Qi" if record["kind"] == "installed" else "-Si"
         target = record["name"] if operation == "-Qi" else record["id"]
         info = capture(["pacman", operation, "--", target])
-        if mode == "details":
-            print(info, flush=True)
-        else:
-            fields = parse_info(info)
-            fields.setdefault("Version", record["version"])
-            fields.setdefault("Description", record.get("description", ""))
-            keys = ["Version", "Description", "Licenses", "Depends On", "Installed Size", "Packager"]
-            if fields.get("Required By", "None") != "None":
-                keys.append("Required By")
-            preview_fields((key, fields[key]) for key in keys if key in fields
-                           and not (is_aur and key == "Packager" and fields[key] == "Unknown Packager"))
+        fields = parse_info(info)
+        fields.setdefault("Version", record["version"])
+        fields.setdefault("Description", record.get("description", ""))
+        if is_aur and fields.get("Packager") == "Unknown Packager":
+            fields.pop("Packager")
+        if not is_aur:
+            preview_package_fields(fields, mode)
             sys.stdout.flush()
     if is_aur:
-        preview_aur(directory, record, mode)
+        preview_aur(directory, record, mode, fields)
     print("\nAlt+D " + ("compact view" if mode == "details" else "full details")
           + (" · Alt+B " + ("back" if mode == "recipe" else "PKGBUILD") if is_aur else ""))
 
@@ -492,6 +512,12 @@ def validate_selection(records):
     return names
 
 
+def orphan_names():
+    # A single -t excludes packages still required, including optional deps.
+    # pacman returns 1 without stderr when no orphaned dependencies exist.
+    return {valid_name(name) for name in capture(["pacman", "-Qdtq"], empty_ok=True).splitlines() if name}
+
+
 def transaction_command(action, records):
     names = validate_selection(records)
     if action == "install":
@@ -504,6 +530,12 @@ def transaction_command(action, records):
         raise Error("Install one source category at a time.")
     if any(record["kind"] != "installed" for record in records):
         raise Error("Choose installed packages for this action.")
+    if action == "orphans":
+        # Recheck after selection: do not remove a package that became explicit
+        # or required while its preview was open. Pacman checks dependencies too.
+        if not set(names).issubset(orphan_names()):
+            raise Error("The orphan list changed. Reopen Remove orphans and review the selection.")
+        return ["sudo", "pacman", "-Rns", "--", *names]
     if action == "remove":
         return ["sudo", "pacman", "-Rns", "--", *names]
     if action == "downgrade":
@@ -538,16 +570,15 @@ def perform(action, records):
         print(f"  {record['name']}   [{record['source']}]   {record['version']}")
     if len(commands) > 1:
         print(f"Repository packages first, then AUR using your existing {text(AUR_HELPER)}/makepkg configuration.")
-    if action == "remove":
+    if action in ("remove", "orphans"):
         print("Pacman will also show any unused dependencies selected for removal.")
     elif action == "downgrade":
         print("Local cache only. No Arch archive fallback and no automatic IgnorePkg changes.")
         print("A downgrade can break dependencies; review pacman's transaction.")
-    if confirm("Continue to the package manager?"):
-        for command in commands:
-            code = subprocess.call(command)
-            if code:
-                raise Error(f"Package operation stopped (exit {code}). No fallback was attempted.")
+    for command in commands:
+        code = subprocess.call(command)
+        if code:
+            raise Error(f"Package operation stopped (exit {code}). No fallback was attempted.")
 
 
 def audit(records):
@@ -617,7 +648,7 @@ def virustotal():
     print("\nVIRUSTOTAL — existing reports only; files are never uploaded.")
     value = input("File path or SHA-256 (empty = back): ").strip()
     if not value:
-        return
+        return False
     digest = file_digest(value)
     link = "https://www.virustotal.com/gui/file/" + digest
     print("SHA-256:", digest)
@@ -647,6 +678,7 @@ def virustotal():
     print(link)
     if confirm("Open the report in your browser?"):
         subprocess.Popen(["xdg-open", link], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    return True  # A real report/link was displayed and should remain readable.
 
 
 def pause():
@@ -655,12 +687,16 @@ def pause():
 
 
 def browse(action):
-    mode, query = ("repos" if action == "install" else "installed"), ""
+    mode, query = ("repos" if action == "install" else "orphans" if action == "orphans" else "installed"), ""
     while True:
         print("Loading " + mode + " packages…", flush=True)
         records = sorted(catalog(mode, query), key=source_order)
-        title = {"install": "Find & install", "remove": "Installed / uninstall", "downgrade": "Downgrade (cache only)"}[action]
+        if action == "orphans" and not records:
+            return "No orphaned dependency packages found."
+        title = {"install": "Find & install", "remove": "Installed / uninstall", "orphans": "Remove orphans", "downgrade": "Downgrade (cache only)"}[action]
         hints = "Finish selections before changing the search" if action == "install" else ""
+        if action == "orphans":
+            hints = "Unused dependencies only · Select packages to remove · Pacman confirms the final removal list"
         selected = picker(records, title + (" — repos + AUR" if action == "install" else " — installed"),
                           query, keys=hints, merged=action == "install", show_state=action == "install")
         if selected is None:
@@ -670,15 +706,18 @@ def browse(action):
             continue
         if key == "alt-t":
             audit(chosen)
+            pause()  # An explicitly requested report needs time to be read.
         elif key == "":
             perform(action, chosen)
-        pause()
+            clear_console()
+            return
 
 
 def main():
     choices = [
         ("install", "Find & install", "Repositories + AUR; alphabetical groups by source"),
         ("remove", "Installed / uninstall", "List installed packages and select several to remove"),
+        ("orphans", "Remove orphans", "Review and remove unused dependency packages"),
         ("downgrade", "Downgrade", "Select previous versions from local caches"),
         ("vt", "VirusTotal", "Check a file/SHA-256; no upload"),
         ("update", "Update system", f"Normal {text(AUR_HELPER)} update using your existing configuration"),
@@ -686,20 +725,24 @@ def main():
     ]
     records = [{"id": key, "name": name, "source": "", "description": description, "kind": "menu"}
                for key, name, description in choices]
+    notice = ""
     while True:
         try:
-            selected = picker(records, "Packages", multi=False, preview=False, searchable=False)
+            selected = picker(records, "Packages", multi=False, preview=False, searchable=False, keys=notice)
+            notice = ""
             if selected is None or not selected[2] or selected[2][0]["id"] == "exit":
                 return
             action = selected[2][0]["id"]
-            if action in ("install", "remove", "downgrade"):
-                browse(action)
+            if action in ("install", "remove", "orphans", "downgrade"):
+                notice = browse(action) or ""
             elif action == "vt":
-                virustotal()
-                pause()
-            elif action == "update" and confirm(f"Run the normal full system update with {text(AUR_HELPER)}?"):
-                subprocess.call(update_command())
-                pause()
+                if virustotal():
+                    pause()
+            elif action == "update":
+                code = subprocess.call(update_command())
+                if code:
+                    raise Error(f"System update stopped (exit {code}). No fallback was attempted.")
+                clear_console()
         except (Error, OSError) as error:
             print("\nSTOP:", text(error))
             print("No automatic retry, alternative package source or security bypass was used.")

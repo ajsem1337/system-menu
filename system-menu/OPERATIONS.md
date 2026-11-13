@@ -14,13 +14,19 @@ storage information, and `cat` displays selector search status.
 | Repository install | `sudo pacman -S --needed -- repo/package ...` |
 | AUR install | `HELPER -S --needed --aur -- package ...` |
 | Remove | `sudo pacman -Rns -- package ...` |
+| List orphaned dependencies | `pacman -Qdtq` |
+| Remove selected orphans (after rechecking) | `sudo pacman -Rns -- package ...` |
 | Update | `HELPER -Syu` |
 | Downgrade | `sudo downgrade --cached-only --ignore=never ...` |
 
 Mixed installs run repositories first, then AUR; failure stops the next command,
 without rollback. Duplicate package names are rejected. Downgrade retains pacman
 caches plus standard paru/yay caches, not archives or custom-helper cache discovery.
-Only confirmed package actions use sudo. No services, system settings or scanner
+Selecting a package action delegates to the package manager without a duplicate
+yes/no prompt; sudo authentication and the manager's own transaction confirmation
+are unchanged. Successful operations return immediately. Non-zero exits are
+reported and wait for Enter; no automatic retry or fallback is performed.
+No services, system settings or scanner
 configuration are installed or changed.
 
 Alt+T runs `traur scan NAME --json` for AUR selections. It is a manual report,

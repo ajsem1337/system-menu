@@ -56,7 +56,7 @@ noctalia msg panel-toggle ajsem1337/system-menu:menu
 noctalia msg panel-toggle ajsem1337/system-menu:about
 ```
 
-- **Packages:** install/uninstall, cache-only downgrade, update and VirusTotal.
+- **Packages:** install/uninstall, orphan cleanup, cache-only downgrade, update and VirusTotal.
 - **Task Manager:** opens Mission Center directly, without a terminal.
 - **Terminal:** opens your configured terminal using your existing settings.
 - **About:** hardware/software, on-demand refresh, technical details and copy.
@@ -74,13 +74,24 @@ noctalia msg panel-toggle ajsem1337/system-menu:about
 
 Search matches names only. AUR joins after two characters; results are grouped
 by source, with AUR last. Finish selections before changing the query.
+Full details are the default in both Find & install and Installed / uninstall.
+Both use one field order, formatter and keyboard controls, for repositories and
+AUR alike; Alt+D optionally switches to a compact view.
 Compact previews show version, description, license, dependencies, size and packager
 where available; AUR adds maintainer, votes/popularity and out-of-date warnings.
 Full details include URL, architecture, groups, conflicts, timestamps and other
 metadata. Installed fields come from `pacman -Qi`; AUR statistics use current RPC
 data. Uninstalled packages never show invented build/install data.
+The standalone `package-menu` launcher should delegate to the widget's installed
+`packages/app.py`, not retain an independent old copy of the frontend.
 Votes are community statistics, not a security rating. Installed-source fallback
 uses local repositories then exact-name AUR metadata, not proven provenance.
+
+**Remove orphans**, directly below Installed / uninstall, lists only packages
+reported by `pacman -Qdtq`: dependencies no longer required by installed packages.
+Select the ones to remove; the selection is rechecked before invoking pacman.
+Pacman retains its normal final removal confirmation. An empty list returns to
+the menu without sudo or an Enter prompt.
 
 ### VirusTotal API key
 
@@ -90,6 +101,8 @@ Open **Packages → VirusTotal**, enter a file path or SHA-256, then answer **y*
 It is saved locally in `~/.config/package-menu/virustotal.key` with permissions
 `0600`, not in Noctalia settings. Later lookups reuse it; without a key you can
 open the report in your browser. `VT_API_KEY`, if set, takes precedence.
+Empty input returns immediately, without another Enter prompt. Actual reports
+and errors remain on screen until acknowledged.
 
 ## Notes
 
@@ -97,7 +110,11 @@ open the report in your browser. `VT_API_KEY`, if set, takes precedence.
 makepkg wrapper or enable automatic scanning. An existing helper/build gate
 still runs independently; incomplete/failed scans do not approve anything.
 
-Package-manager confirmations remain. Downgrades use local caches only and can
+Package actions go straight to the package manager, without an extra menu-level
+yes/no prompt. Sudo authentication and package-manager confirmations remain.
+Successful operations return immediately; failures remain visible until Enter.
+Explicitly requested audit/VirusTotal reports also wait so they can be read.
+Downgrades use local caches only and can
 break dependencies. VirusTotal retrieves existing hash reports: no file uploads,
 no promise of safety. See [operations and privacy](OPERATIONS.md) for data access.
 

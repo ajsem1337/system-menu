@@ -83,16 +83,21 @@ class PackageMenuTests(unittest.TestCase):
                 app.run(["--aur-helper", str(helper), "--list", "aur", "example"])
         self.assertEqual(json.loads(output.getvalue())[0]["name"], "example")
 
-    def test_update_action_runs_selected_helper_and_keeps_confirmation(self):
+    def test_update_action_uses_helper_without_extra_confirmation_or_success_pause(self):
         app.configure_helper("yay")
         selection = ("", "", [{"id": "update"}])
-        with patch.object(app, "picker", side_effect=[selection, None]), patch.object(app, "confirm", return_value=True) as confirm, patch.object(app.subprocess, "call", return_value=0) as call, patch.object(app, "pause"):
+        with patch.object(app, "picker", side_effect=[selection, None]), patch.object(app, "confirm", side_effect=AssertionError("no duplicate prompt")), patch.object(app.subprocess, "call", return_value=0) as call, patch.object(app, "pause") as pause:
             app.main()
-        self.assertIn("yay", confirm.call_args.args[0])
         call.assert_called_once_with(["yay", "-Syu"])
-        with patch.object(app, "picker", side_effect=[selection, None]), patch.object(app, "confirm", return_value=False), patch.object(app.subprocess, "call") as call:
+        pause.assert_not_called()
+        self.assertNotIn("--noconfirm", call.call_args.args[0])
+
+    def test_update_error_is_displayed_and_paused(self):
+        selection = ("", "", [{"id": "update"}])
+        with patch.object(app, "picker", side_effect=[selection, None]), patch.object(app.subprocess, "call", return_value=7), patch.object(app, "pause") as pause, contextlib.redirect_stdout(io.StringIO()) as output:
             app.main()
-        call.assert_not_called()
+        self.assertIn("System update stopped (exit 7)", output.getvalue())
+        pause.assert_called_once_with()
 
     def test_missing_custom_helper_does_not_fall_back_or_block_repo_commands(self):
         app.configure_helper("missing-custom-helper")
@@ -290,6 +295,12 @@ class PackageMenuTests(unittest.TestCase):
         with patch.object(app, "picker", return_value=None) as picker:
             app.main()
         self.assertNotIn("pacseek", [record["id"] for record in picker.call_args.args[0]])
+
+    def test_orphan_cleanup_is_directly_below_installed(self):
+        with patch.object(app, "picker", return_value=None) as picker:
+            app.main()
+        actions = [record["id"] for record in picker.call_args.args[0]]
+        self.assertEqual(actions[actions.index("remove") + 1], "orphans")
 
     def test_console_clear_is_terminal_only(self):
         with contextlib.redirect_stdout(io.StringIO()) as output:
@@ -490,12 +501,27 @@ class PackageMenuTests(unittest.TestCase):
                 self.assertTrue(all(value not in compact for value in ("Architecture", "URL", "Groups", "Conflicts", "Replaces", "Build Date", "Optional Deps", "Alt+B")))
                 app.preview_mode(database, "details")
                 full = render_preview(database, record)
-                self.assertIn(info, full)
+                expected = app.parse_info(info)
+                expected.pop("Name")
+                self.assertEqual(app.parse_info(full), expected)
                 self.assertIn("Alt+D compact view", full)
                 target = record["name"] if kind == "installed" else record["id"]
                 capture.assert_called_with(["pacman", operation, "--", target])
                 app.preview_mode(database, "details")
                 self.assertEqual(render_preview(database, record), compact)
+
+    def test_aur_and_repo_previews_share_field_order_in_search_and_installed(self):
+        info = "Version         : 1.0-1\nDescription     : Useful package\nURL             : https://example.org\nLicenses        : MIT\nDepends On      : glibc\n"
+        metadata = {"Version": "1.0-1", "Description": "Useful package", "URL": "https://example.org",
+                    "License": ["MIT"], "Depends": ["glibc"], "Maintainer": "alice"}
+        common = ["Version", "Description", "URL", "Licenses", "Depends On"]
+        for kind, source in [("repo", "extra"), ("aur", "aur"), ("installed", "extra"), ("installed", "aur")]:
+            record = package(kind=kind, source=source)
+            with self.subTest(kind=kind, source=source), preview_catalog(record, "details") as database, patch.object(app, "capture", return_value=info), patch.object(app, "aur_info", return_value={"example": metadata}):
+                output = render_preview(database, record)
+            fields = app.parse_info(output)
+            self.assertEqual([key for key in fields if key in common], common)
+            self.assertEqual({key: fields[key] for key in common}, app.parse_info(info))
 
     def test_aur_preview_errors_are_not_security_verdicts(self):
         record = dict(package(kind="aur", source="aur"), description="Cached description")
@@ -561,7 +587,37 @@ class PackageMenuTests(unittest.TestCase):
         with self.assertRaises(app.Error):
             app.transaction_command("remove", [package()])
         self.assertEqual(app.transaction_command("remove", [package(kind="installed")]),
-                         ["sudo", "pacman", "-Rns", "--", "example"])
+                          ["sudo", "pacman", "-Rns", "--", "example"])
+
+    def test_orphan_catalog_only_contains_unused_dependencies(self):
+        records = [package("unused", "installed"), package("explicit", "installed")]
+        with patch.object(app, "capture", return_value="unused\n") as capture, patch.object(app, "installed_catalog", return_value=records):
+            self.assertEqual(app.catalog("orphans"), records[:1])
+        capture.assert_called_once_with(["pacman", "-Qdtq"], empty_ok=True)
+
+    def test_empty_orphans_return_to_menu_without_prompt_or_transaction(self):
+        selection = ("", "", [{"id": "orphans"}])
+        with patch.object(app, "picker", side_effect=[selection, None]) as picker, patch.object(app, "capture", return_value=""), patch.object(app, "installed_catalog") as installed, patch.object(app, "pause") as pause, patch.object(app.subprocess, "call") as call, contextlib.redirect_stdout(io.StringIO()):
+            app.main()
+        call.assert_not_called()
+        pause.assert_not_called()
+        installed.assert_not_called()
+        self.assertIn("No orphaned", picker.call_args.kwargs["keys"])
+
+    def test_orphan_removal_rechecks_selection_and_preserves_native_confirmation(self):
+        records = [package("unused", "installed")]
+        with patch.object(app, "orphan_names", return_value={"unused"}), patch.object(app, "confirm", side_effect=AssertionError("no extra confirmation")), patch.object(app.subprocess, "call", return_value=0) as call, contextlib.redirect_stdout(io.StringIO()):
+            app.perform("orphans", records)
+        call.assert_called_once_with(["sudo", "pacman", "-Rns", "--", "unused"])
+        self.assertNotIn("--noconfirm", call.call_args.args[0])
+        with patch.object(app, "orphan_names", return_value=set()), patch.object(app.subprocess, "call") as call, self.assertRaises(app.Error):
+            app.perform("orphans", records)
+        call.assert_not_called()
+
+    def test_orphan_query_errors_do_not_turn_into_removals(self):
+        with patch.object(app, "capture", side_effect=app.Error("query failed")), patch.object(app.subprocess, "call") as call, self.assertRaises(app.Error):
+            app.perform("orphans", [package("unused", "installed")])
+        call.assert_not_called()
 
     def test_downgrade_is_cache_only_and_does_not_edit_ignore_policy(self):
         with tempfile.TemporaryDirectory() as directory, patch.object(app, "capture", return_value=directory + "\n"):
@@ -575,10 +631,29 @@ class PackageMenuTests(unittest.TestCase):
         with patch("builtins.input", return_value=""):
             self.assertFalse(app.confirm("Install?"))
 
-    def test_cancelled_plan_does_not_run_any_package_operation(self):
-        with patch.object(app, "confirm", return_value=False), patch.object(app.subprocess, "call") as call, contextlib.redirect_stdout(io.StringIO()):
-            app.perform("install", [package()])
+    def test_cancelled_package_selection_does_not_run_any_operation(self):
+        with patch.object(app, "catalog", return_value=[]), patch.object(app, "picker", return_value=None), patch.object(app.subprocess, "call") as call, contextlib.redirect_stdout(io.StringIO()):
+            app.browse("install")
         call.assert_not_called()
+
+    def test_package_operations_have_no_duplicate_confirmation(self):
+        with patch.object(app, "confirm", side_effect=AssertionError("no duplicate prompt")), patch.object(app.subprocess, "call", return_value=0) as call, contextlib.redirect_stdout(io.StringIO()):
+            app.perform("install", [package()])
+        call.assert_called_once_with(["sudo", "pacman", "-S", "--needed", "--", "cachyos-v3/example"])
+
+    def test_successful_package_operation_returns_without_pause(self):
+        selection = ("", "", [package()])
+        with patch.object(app, "catalog", return_value=[]), patch.object(app, "picker", side_effect=[selection, None]), patch.object(app, "perform") as perform, patch.object(app, "pause") as pause, contextlib.redirect_stdout(io.StringIO()):
+            app.browse("install")
+        perform.assert_called_once()
+        pause.assert_not_called()
+
+    def test_failed_package_operation_is_displayed_and_paused(self):
+        selection = ("", "", [{"id": "install"}])
+        with patch.object(app, "picker", side_effect=[selection, None]), patch.object(app, "browse", side_effect=app.Error("Package operation stopped (exit 1)")), patch.object(app, "pause") as pause, contextlib.redirect_stdout(io.StringIO()) as output:
+            app.main()
+        self.assertIn("Package operation stopped (exit 1)", output.getvalue())
+        pause.assert_called_once_with()
 
     def test_vt_hash_is_local_and_digests_are_normalized(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -586,6 +661,27 @@ class PackageMenuTests(unittest.TestCase):
             path.write_bytes(b"test bytes")
             self.assertEqual(app.file_digest(str(path)), hashlib.sha256(b"test bytes").hexdigest())
         self.assertEqual(app.file_digest("A" * 64), "a" * 64)
+
+    def test_empty_virustotal_input_returns_without_another_enter(self):
+        selection = ("", "", [{"id": "vt"}])
+        with patch.object(app, "picker", side_effect=[selection, None]), patch("builtins.input", return_value="") as input_, patch.object(app, "pause") as pause, patch.object(app, "vt_lookup") as lookup, contextlib.redirect_stdout(io.StringIO()):
+            app.main()
+        input_.assert_called_once()
+        pause.assert_not_called()
+        lookup.assert_not_called()
+
+    def test_displayed_virustotal_report_waits_but_cancel_does_not(self):
+        for displayed in (False, True):
+            with self.subTest(displayed=displayed), patch.object(app, "picker", side_effect=[("", "", [{"id": "vt"}]), None]), patch.object(app, "virustotal", return_value=displayed), patch.object(app, "pause") as pause:
+                app.main()
+            self.assertEqual(pause.call_count, int(displayed))
+
+    def test_virustotal_invalid_input_shows_error_then_waits(self):
+        selection = ("", "", [{"id": "vt"}])
+        with patch.object(app, "picker", side_effect=[selection, None]), patch("builtins.input", return_value="/nonexistent/virustotal-test-file"), patch.object(app, "pause") as pause, contextlib.redirect_stdout(io.StringIO()) as output:
+            app.main()
+        self.assertIn("STOP:", output.getvalue())
+        pause.assert_called_once_with()
 
     def test_vt_is_get_by_hash_not_file_upload(self):
         response = io.BytesIO(json.dumps({"data": {"attributes": {"last_analysis_stats": {"malicious": 1}}}}).encode())
