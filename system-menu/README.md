@@ -87,11 +87,10 @@ The standalone `package-menu` launcher should delegate to the widget's installed
 Votes are community statistics, not a security rating. Installed-source fallback
 uses local repositories then exact-name AUR metadata, not proven provenance.
 
-**Remove orphans**, directly below Installed / uninstall, lists only packages
-reported by `pacman -Qdtq`: dependencies no longer required by installed packages.
-Select the ones to remove; the selection is rechecked before invoking pacman.
-Pacman retains its normal final removal confirmation. An empty orphan list shows
-an informational header, without sudo or an Enter prompt; Esc returns to the menu.
+**Remove orphans**, directly below Installed / uninstall, immediately passes all
+packages reported by `pacman -Qdtq` to `sudo pacman -Rns --`, without a selection
+submenu. Pacman retains its normal final removal confirmation. An empty result
+skips sudo/removal. Success returns to the main menu without an Enter prompt.
 
 ### VirusTotal API key
 
@@ -115,6 +114,7 @@ yes/no prompt. Sudo authentication and package-manager confirmations remain.
 Successful package operations return immediately to the same refreshed list,
 preserving the search query. Failures remain visible until Enter, then return to
 that same list without retrying. Esc leaves the list for the main Packages menu.
+Update system and Remove orphans return to the main menu where they were started.
 Explicitly requested audit/VirusTotal reports also wait so they can be read.
 Downgrades use local caches only and can
 break dependencies. VirusTotal retrieves existing hash reports: no file uploads,

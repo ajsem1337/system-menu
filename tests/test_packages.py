@@ -589,37 +589,51 @@ class PackageMenuTests(unittest.TestCase):
         self.assertEqual(app.transaction_command("remove", [package(kind="installed")]),
                           ["sudo", "pacman", "-Rns", "--", "example"])
 
-    def test_orphan_catalog_only_contains_unused_dependencies(self):
-        records = [package("unused", "installed"), package("explicit", "installed")]
-        with patch.object(app, "capture", return_value="unused\n") as capture, patch.object(app, "installed_catalog", return_value=records):
-            self.assertEqual(app.catalog("orphans"), records[:1])
-        capture.assert_called_once_with(["pacman", "-Qdtq"], empty_ok=True)
-
-    def test_empty_orphans_stay_in_their_list_without_prompt_or_transaction(self):
+    def test_orphan_cleanup_removes_all_targets_without_submenu_or_extra_prompt(self):
         selection = ("", "", [{"id": "orphans"}])
-        with patch.object(app, "picker", side_effect=[selection, None, None]) as picker, patch.object(app, "capture", return_value=""), patch.object(app, "installed_catalog") as installed, patch.object(app, "pause") as pause, patch.object(app.subprocess, "call") as call, contextlib.redirect_stdout(io.StringIO()):
+        names = [f"unused-{index:03}" for index in range(60)]
+        with patch.object(app, "picker", side_effect=[selection, None]) as picker, patch.object(app, "capture", return_value="\n".join(reversed(names))) as capture, patch.object(app, "browse") as browse, patch.object(app, "installed_catalog") as installed, patch.object(app, "confirm", side_effect=AssertionError("no extra prompt")), patch.object(app, "pause") as pause, patch.object(app.subprocess, "call", return_value=0) as call, patch.object(app, "clear_console") as clear:
+            app.main()
+        capture.assert_called_once_with(["pacman", "-Qdtq"], empty_ok=True)
+        call.assert_called_once_with(["sudo", "pacman", "-Rns", "--", *names])
+        self.assertNotIn("--noconfirm", call.call_args.args[0])
+        self.assertEqual([item.args[1] for item in picker.call_args_list], ["Packages", "Packages"])
+        browse.assert_not_called()
+        installed.assert_not_called()
+        pause.assert_not_called()
+        clear.assert_called_once_with()
+
+    def test_empty_orphans_return_to_main_without_prompt_or_transaction(self):
+        selection = ("", "", [{"id": "orphans"}])
+        with patch.object(app, "picker", side_effect=[selection, None]) as picker, patch.object(app, "capture", return_value=""), patch.object(app, "installed_catalog") as installed, patch.object(app, "pause") as pause, patch.object(app.subprocess, "call") as call, patch.object(app, "clear_console"):
             app.main()
         call.assert_not_called()
-        pause.assert_not_called()
         installed.assert_not_called()
-        orphan_view = picker.call_args_list[1]
-        self.assertEqual(orphan_view.args[0], [])
-        self.assertIn("No orphaned", orphan_view.kwargs["keys"])
-
-    def test_orphan_removal_rechecks_selection_and_preserves_native_confirmation(self):
-        records = [package("unused", "installed")]
-        with patch.object(app, "orphan_names", return_value={"unused"}), patch.object(app, "confirm", side_effect=AssertionError("no extra confirmation")), patch.object(app.subprocess, "call", return_value=0) as call, contextlib.redirect_stdout(io.StringIO()):
-            app.perform("orphans", records)
-        call.assert_called_once_with(["sudo", "pacman", "-Rns", "--", "unused"])
-        self.assertNotIn("--noconfirm", call.call_args.args[0])
-        with patch.object(app, "orphan_names", return_value=set()), patch.object(app.subprocess, "call") as call, self.assertRaises(app.Error):
-            app.perform("orphans", records)
-        call.assert_not_called()
+        pause.assert_not_called()
+        self.assertEqual([item.args[1] for item in picker.call_args_list], ["Packages", "Packages"])
 
     def test_orphan_query_errors_do_not_turn_into_removals(self):
-        with patch.object(app, "capture", side_effect=app.Error("query failed")), patch.object(app.subprocess, "call") as call, self.assertRaises(app.Error):
-            app.perform("orphans", [package("unused", "installed")])
+        selection = ("", "", [{"id": "orphans"}])
+        with patch.object(app, "picker", side_effect=[selection, None]), patch.object(app, "capture", side_effect=app.Error("query failed")), patch.object(app.subprocess, "call") as call, patch.object(app, "pause") as pause, contextlib.redirect_stdout(io.StringIO()) as output:
+            app.main()
         call.assert_not_called()
+        pause.assert_called_once_with()
+        self.assertIn("query failed", output.getvalue())
+
+    def test_invalid_orphan_names_prevent_the_entire_removal(self):
+        with patch.object(app, "capture", return_value="unused\n--noconfirm\n"), patch.object(app.subprocess, "call") as call, self.assertRaises(app.Error):
+            app.remove_orphans()
+        call.assert_not_called()
+
+    def test_orphan_removal_error_waits_then_returns_to_main_without_retry(self):
+        selection = ("", "", [{"id": "orphans"}])
+        with patch.object(app, "picker", side_effect=[selection, None]) as picker, patch.object(app, "capture", return_value="unused\n") as capture, patch.object(app.subprocess, "call", return_value=7) as call, patch.object(app, "pause") as pause, contextlib.redirect_stdout(io.StringIO()) as output:
+            app.main()
+        self.assertIn("Package operation stopped (exit 7)", output.getvalue())
+        pause.assert_called_once_with()
+        capture.assert_called_once()
+        call.assert_called_once()
+        self.assertEqual([item.args[1] for item in picker.call_args_list], ["Packages", "Packages"])
 
     def test_downgrade_is_cache_only_and_does_not_edit_ignore_policy(self):
         with tempfile.TemporaryDirectory() as directory, patch.object(app, "capture", return_value=directory + "\n"):
@@ -644,7 +658,7 @@ class PackageMenuTests(unittest.TestCase):
         call.assert_called_once_with(["sudo", "pacman", "-S", "--needed", "--", "cachyos-v3/example"])
 
     def test_successful_operations_reload_the_same_list_and_keep_the_query(self):
-        for action, mode in [("install", "repos"), ("remove", "installed"), ("downgrade", "installed"), ("orphans", "orphans")]:
+        for action, mode in [("install", "repos"), ("remove", "installed"), ("downgrade", "installed")]:
             record = package(kind="repo" if action == "install" else "installed")
             selection = ("systemd", "", [record])
             with self.subTest(action=action), patch.object(app, "catalog", return_value=[record]) as catalog, patch.object(app, "picker", side_effect=[selection, None]) as picker, patch.object(app, "perform") as perform, patch.object(app, "pause") as pause, contextlib.redirect_stdout(io.StringIO()):
@@ -666,15 +680,6 @@ class PackageMenuTests(unittest.TestCase):
         self.assertEqual(picker.call_count, 2)
         self.assertEqual(picker.call_args.args[2], "systemd")
         perform.assert_called_once()  # Redisplaying the list must not retry.
-
-    def test_removing_last_orphan_keeps_the_empty_orphan_screen(self):
-        record = package(kind="installed")
-        with patch.object(app, "catalog", side_effect=[[record], []]), patch.object(app, "picker", side_effect=[("", "", [record]), None]) as picker, patch.object(app, "perform"), patch.object(app, "pause") as pause, contextlib.redirect_stdout(io.StringIO()):
-            app.browse("orphans")
-        self.assertEqual(picker.call_count, 2)
-        self.assertEqual(picker.call_args.args[0], [])
-        self.assertIn("No orphaned", picker.call_args.kwargs["keys"])
-        pause.assert_not_called()
 
     def test_failed_package_operation_is_displayed_and_paused(self):
         selection = ("", "", [{"id": "install"}])

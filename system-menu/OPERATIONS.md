@@ -15,7 +15,7 @@ storage information, and `cat` displays selector search status.
 | AUR install | `HELPER -S --needed --aur -- package ...` |
 | Remove | `sudo pacman -Rns -- package ...` |
 | List orphaned dependencies | `pacman -Qdtq` |
-| Remove selected orphans (after rechecking) | `sudo pacman -Rns -- package ...` |
+| Remove all orphans (no submenu) | `sudo pacman -Rns -- package ...` with all `pacman -Qdtq` results |
 | Update | `HELPER -Syu` |
 | Downgrade | `sudo downgrade --cached-only --ignore=never ...` |
 
@@ -27,6 +27,8 @@ yes/no prompt; sudo authentication and the manager's own transaction confirmatio
 are unchanged. Successful operations return to the same refreshed catalog and
 query, not the main menu. Non-zero exits are reported and wait for Enter before
 restoring that list; no automatic retry or fallback is performed.
+Update and orphan cleanup start and return at the main menu. Orphan cleanup
+skips removal when the query is empty and retains pacman's own confirmation.
 No services, system settings or scanner
 configuration are installed or changed.
 

@@ -188,11 +188,6 @@ def catalog(mode, query=""):
         return parse_search(capture(["pacman", "-Ss", "."]), "repo")
     if mode == "installed":
         return installed_catalog()
-    if mode == "orphans":
-        names = orphan_names()
-        if not names:
-            return []
-        return [record for record in installed_catalog() if record["name"] in names]
     if not query.strip():
         return []
     # Search is read-only. No fallback mirror or alternative package is substituted.
@@ -518,6 +513,15 @@ def orphan_names():
     return {valid_name(name) for name in capture(["pacman", "-Qdtq"], empty_ok=True).splitlines() if name}
 
 
+def remove_orphans():
+    names = sorted(orphan_names())
+    if names:
+        code = subprocess.call(["sudo", "pacman", "-Rns", "--", *names])
+        if code:
+            raise Error(f"Package operation stopped (exit {code}). No fallback was attempted.")
+    clear_console()
+
+
 def transaction_command(action, records):
     names = validate_selection(records)
     if action == "install":
@@ -530,12 +534,6 @@ def transaction_command(action, records):
         raise Error("Install one source category at a time.")
     if any(record["kind"] != "installed" for record in records):
         raise Error("Choose installed packages for this action.")
-    if action == "orphans":
-        # Recheck after selection: do not remove a package that became explicit
-        # or required while its preview was open. Pacman checks dependencies too.
-        if not set(names).issubset(orphan_names()):
-            raise Error("The orphan list changed. Reopen Remove orphans and review the selection.")
-        return ["sudo", "pacman", "-Rns", "--", *names]
     if action == "remove":
         return ["sudo", "pacman", "-Rns", "--", *names]
     if action == "downgrade":
@@ -570,7 +568,7 @@ def perform(action, records):
         print(f"  {record['name']}   [{record['source']}]   {record['version']}")
     if len(commands) > 1:
         print(f"Repository packages first, then AUR using your existing {text(AUR_HELPER)}/makepkg configuration.")
-    if action in ("remove", "orphans"):
+    if action == "remove":
         print("Pacman will also show any unused dependencies selected for removal.")
     elif action == "downgrade":
         print("Local cache only. No Arch archive fallback and no automatic IgnorePkg changes.")
@@ -692,15 +690,12 @@ def show_error(error):
 
 
 def browse(action):
-    mode, query = ("repos" if action == "install" else "orphans" if action == "orphans" else "installed"), ""
+    mode, query = ("repos" if action == "install" else "installed"), ""
     while True:
         print("Loading " + mode + " packages…", flush=True)
         records = sorted(catalog(mode, query), key=source_order)
-        title = {"install": "Find & install", "remove": "Installed / uninstall", "orphans": "Remove orphans", "downgrade": "Downgrade (cache only)"}[action]
+        title = {"install": "Find & install", "remove": "Installed / uninstall", "downgrade": "Downgrade (cache only)"}[action]
         hints = "Finish selections before changing the search" if action == "install" else ""
-        if action == "orphans":
-            hints = ("Unused dependencies only · Select packages to remove · Pacman confirms the final removal list"
-                     if records else "No orphaned dependency packages found · Esc back")
         selected = picker(records, title + (" — repos + AUR" if action == "install" else " — installed"),
                           query, keys=hints, merged=action == "install", show_state=action == "install")
         if selected is None:
@@ -726,7 +721,7 @@ def main():
     choices = [
         ("install", "Find & install", "Repositories + AUR; alphabetical groups by source"),
         ("remove", "Installed / uninstall", "List installed packages and select several to remove"),
-        ("orphans", "Remove orphans", "Review and remove unused dependency packages"),
+        ("orphans", "Remove orphans", "Remove all unused dependencies; pacman confirms the transaction"),
         ("downgrade", "Downgrade", "Select previous versions from local caches"),
         ("vt", "VirusTotal", "Check a file/SHA-256; no upload"),
         ("update", "Update system", f"Normal {text(AUR_HELPER)} update using your existing configuration"),
@@ -740,8 +735,10 @@ def main():
             if selected is None or not selected[2] or selected[2][0]["id"] == "exit":
                 return
             action = selected[2][0]["id"]
-            if action in ("install", "remove", "orphans", "downgrade"):
+            if action in ("install", "remove", "downgrade"):
                 browse(action)
+            elif action == "orphans":
+                remove_orphans()
             elif action == "vt":
                 if virustotal():
                     pause()
