@@ -2,7 +2,9 @@
 
 ![Made with AI](https://img.shields.io/badge/Made%20with-AI-76ddcf)
 
-Noctalia v5 system menu with an Arch package browser and system information.
+Noctalia v5 launcher for your choice of package manager, system monitor and terminal,
+with a native system-information panel. Supports GUI commands, terminal TUIs and
+desktop entries, without a required package manager or monitor.
 Inspired by the GNOME [Logo Menu](https://github.com/Aryan20/Logomenu) extension.
 
 ## Install
@@ -29,15 +31,22 @@ python3 -B -m unittest discover -s tests -v
 noctalia plugins lint system-menu
 ```
 
-Tests stay outside the installed plugin. They use mocked network/transactions,
-real fzf filters (0.74.5+) and Lua UI stubs. The
+Tests stay outside the installed plugin. They use mocked system-information
+commands and Lua UI stubs; no applications or package transactions are started. The
 [community PR](https://github.com/noctalia-dev/community-plugins/pull/1389) remains
 a draft pending human review, screenshots and cross-compositor testing.
 
 ## Credits
 
-MIT — [LICENSE](LICENSE). The package workflow is inspired by Omarchy's fzf scripts;
-their [MIT notice](system-menu/packages/LICENSE-OMARCHY) is retained.
+MIT — [LICENSE](LICENSE).
+
+## Separate package TUI
+
+The former bundled frontend is now [package-menu](https://github.com/ajsem1337/package-menu),
+with its own history, releases and installation. It runs without Noctalia and is
+one optional launcher target, never a requirement. Version 2.0 users choose their
+Packages and Task Manager applications in plugin settings; see the
+[migration guide](system-menu/README.md#upgrading-from-1x).
 
 ## AI assistance
 

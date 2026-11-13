@@ -10,15 +10,10 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - name: Install Lua and current fzf
+      - name: Install Lua
         run: |
           sudo apt-get update
           sudo apt-get install -y lua5.4
-          curl --fail --location --output fzf.tar.gz https://github.com/junegunn/fzf/releases/download/v0.74.5/fzf-0.74.5-linux_amd64.tar.gz
-          echo 'd47d7f882972c7d674dbbba998ffa4116e68379616ffac7695d0671e9a722c5f  fzf.tar.gz' | sha256sum -c -
-          tar -xzf fzf.tar.gz fzf
-          sudo install -m755 fzf /usr/local/bin/fzf
-          rm fzf fzf.tar.gz
       - name: Python tests (no transactions or network)
         run: python3 -B -m unittest discover -s tests -v
       - name: Menu, widget and About tests

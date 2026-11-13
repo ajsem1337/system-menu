@@ -1,24 +1,57 @@
 {
+  "launch_modes": {
+    "direct": "Direct (GUI or custom command)",
+    "terminal": "In configured terminal (TUI)",
+    "desktop": "Desktop entry (.desktop ID)"
+  },
+  "command_formats": {
+    "argv": "Separate arguments (recommended)",
+    "quoted": "One POSIX-quoted command string"
+  },
   "settings": {
-    "show_terminal_arguments": {
-      "label": "Advanced terminal options",
-      "description": "Show argument lists. Saved values apply even when hidden."
-    },
     "terminal": {
       "label": "Terminal executable",
-      "description": "Executable name or absolute path, without arguments."
+      "description": "Program name or absolute path, without arguments. Used by Terminal and launchers in terminal mode."
+    },
+    "packages_mode": {
+      "label": "Packages — launch mode",
+      "description": "Choose how your package application starts. Desktop entry uses its native Exec/Terminal settings; no package manager is required by this plugin."
+    },
+    "packages_command": {
+      "label": "Packages — executable or desktop ID",
+      "description": "Your choice, not a fixed provider list. In terminal/direct mode: pacseek, pacsea, package-menu, gnome-software, etc. In desktop mode: an installed .desktop ID."
+    },
+    "packages_args": {
+      "label": "Packages — arguments",
+      "description": "One argument per item, without shell quotes or expansion. For package-menu with yay: --aur-helper and yay as two items. Inactive in desktop mode."
+    },
+    "monitor_mode": {
+      "label": "Task Manager — launch mode",
+      "description": "Direct for GUI apps such as Mission Center; In terminal for btop/htop; Desktop entry for native desktop integration."
+    },
+    "monitor_command": {
+      "label": "Task Manager — executable or desktop ID",
+      "description": "Your chosen monitor: missioncenter, btop, htop, etc., or an installed .desktop ID in desktop mode."
+    },
+    "monitor_args": {
+      "label": "Task Manager — arguments",
+      "description": "One argument per item, passed literally. Inactive in desktop mode."
+    },
+    "show_terminal_arguments": {
+      "label": "Advanced terminal options",
+      "description": "Show terminal argument lists. Saved values apply even when hidden."
     },
     "terminal_args": {
       "label": "Terminal arguments",
-      "description": "Extra terminal options, one per item. No shell expansion."
+      "description": "Extra terminal options, one per item. Applied before run-program arguments; also used when opening an empty terminal."
     },
     "terminal_exec_args": {
       "label": "Run-program arguments",
-      "description": "Before the package browser: -e for Kitty/foot/Alacritty, -- for GNOME Terminal; empty if not needed."
+      "description": "Between terminal options and the TUI command: -e for Kitty/foot/Alacritty, -- for GNOME Terminal; empty for terminals accepting the command directly."
     },
-    "aur_helper": {
-      "label": "AUR helper executable",
-      "description": "paru, yay or a compatible executable path, without arguments."
+    "terminal_command_format": {
+      "label": "Terminal child-command format",
+      "description": "Usually Separate arguments. Choose one quoted string only for terminal options that expect a single POSIX-style command string. Every program argument is escaped automatically."
     }
   }
 }

@@ -1,7 +1,14 @@
 -- Run from system-menu/: lua ../tests/test_ui.lua
 local function environment()
-    local state = { renders = 0, launches = {}, copied = nil, files = {}, icons = {}, iconLookups = {},
-        config = { terminal = "kitty", terminal_args = {}, terminal_exec_args = { "-e" }, aur_helper = "paru" } }
+    local manifestFile = assert(io.open("plugin.toml"))
+    local manifest = manifestFile:read("*a")
+    manifestFile:close()
+    local state = { renders = 0, launches = {}, copied = nil,
+        files = { ["/test/plugin/plugin.toml"] = manifest }, icons = {}, iconLookups = {}, missing = {},
+        config = { terminal = "kitty", terminal_args = {}, terminal_exec_args = { "-e" },
+            terminal_command_format = "argv", show_terminal_arguments = false,
+            packages_mode = "terminal", packages_command = "pacsea", packages_args = {},
+            monitor_mode = "direct", monitor_command = "missioncenter", monitor_args = {} } }
     local env = setmetatable({}, { __index = _G })
     env.ui = setmetatable({}, { __index = function(_, kind)
         return function(props, children) return { kind = kind, props = props, children = children or {} } end
@@ -21,7 +28,8 @@ local function environment()
         expandPath = function(path) return path:gsub("~", "/home/test") end,
         pluginDir = function() return "/test/plugin" end,
         togglePanel = function(id) state.toggled = id end,
-        notifyError = function() state.error = true end,
+        notifyError = function(_, message) state.error = message end,
+        commandExists = function(command) return not state.missing[command] end,
         log = function() end,
         runAsync = function(argv, callback)
             table.insert(state.launches, { argv = argv, callback = callback })
@@ -32,7 +40,7 @@ local function environment()
     }
     local modules = {}
     env.require = function(path)
-        assert(path == "./distro_icon.luau")
+        assert(path == "./distro_icon.luau" or path == "./launcher.luau")
         if not modules[path] then modules[path] = assert(loadfile(path, "t", env))() end
         return modules[path]
     end
@@ -116,9 +124,9 @@ assert(#menuState.launches[1].argv == 1)
 assert(menuState.launches[1].argv[1] == "missioncenter")
 menu.openPackages()
 assert(menuState.launches[2].argv[1] == "kitty")
-assert(menuState.launches[2].argv[5] == "/test/plugin/packages/app.py")
-assert(menuState.launches[2].argv[6] == "--aur-helper")
-assert(menuState.launches[2].argv[7] == "paru")
+assert(#menuState.launches[2].argv == 3)
+assert(menuState.launches[2].argv[3] == "pacsea")
+assert(menuState.launches[1].callback == nil and menuState.launches[2].callback == nil)
 menu.openTerminal()
 assert(menuState.launches[3].argv[1] == "kitty")
 menuState.closed = false
@@ -138,8 +146,11 @@ for _, example in ipairs({
     { terminal = "/opt/my terminal/bin/terminal", exec = {} },
 }) do
     local custom, customState = environment()
-    customState.config = { terminal = example.terminal, terminal_args = { "--custom", "value with spaces;$(literal)" },
-        terminal_exec_args = example.exec, aur_helper = "/opt/custom helper/yay" }
+    customState.config.terminal = example.terminal
+    customState.config.terminal_args = { "--custom", "value with spaces;$(literal)" }
+    customState.config.terminal_exec_args = example.exec
+    customState.config.packages_command = "/opt/my package manager/app"
+    customState.config.packages_args = { "--custom", "value with spaces;$(literal)", "" }
     assert(loadfile("menu.luau", "t", custom))()
     custom.openTerminal()
     equalArgs(customState.launches[1].argv, { example.terminal, "--custom", "value with spaces;$(literal)" })
@@ -147,15 +158,15 @@ for _, example in ipairs({
     for _, arg in ipairs(example.exec) do table.insert(expected, arg) end
     custom.openTaskManager()
     equalArgs(customState.launches[2].argv, { "missioncenter" })
-    for _, arg in ipairs({ "python3", "-I", "/test/plugin/packages/app.py", "--aur-helper", "/opt/custom helper/yay" }) do
+    for _, arg in ipairs({ "/opt/my package manager/app", "--custom", "value with spaces;$(literal)", "" }) do
         table.insert(expected, arg)
     end
     custom.openPackages()
     equalArgs(customState.launches[3].argv, expected)
 end
 
-for _, key in ipairs({ "terminal", "aur_helper" }) do
-    for _, value in ipairs({ "", "   ", "bad\ncommand", "--invalid" }) do
+for _, key in ipairs({ "terminal", "packages_command" }) do
+    for _, value in ipairs({ "", "   ", "bad\ncommand", "--invalid", "btop --utf-force", "relative/app" }) do
         local invalid, invalidState = environment()
         invalidState.config[key] = value
         assert(loadfile("menu.luau", "t", invalid))()
@@ -163,6 +174,103 @@ for _, key in ipairs({ "terminal", "aur_helper" }) do
         assert(invalidState.error and not invalidState.closed and #invalidState.launches == 0)
     end
 end
+for _, action in ipairs({ { "packages", "openPackages" }, { "monitor", "openTaskManager" } }) do
+    local prefix, callback = action[1], action[2]
+    for _, mode in ipairs({ "direct", "terminal", "desktop" }) do
+        local configured, configuredState = environment()
+        configuredState.config[prefix .. "_mode"] = mode
+        configuredState.config[prefix .. "_command"] = mode == "desktop" and "org.example.App" or "chosen-app"
+        configuredState.config[prefix .. "_args"] = { "--flag", "a value;$(literal)" }
+        configuredState.config.terminal_exec_args = { "--" }
+        assert(loadfile("menu.luau", "t", configured))()
+        configured[callback]()
+        assert(configuredState.closed and not configuredState.error)
+        if mode == "desktop" then
+            equalArgs(configuredState.launches[1].argv, { "python3", "-I", "/test/plugin/desktop-launch.py", "org.example.App.desktop" })
+            assert(configuredState.launches[1].callback)
+            configuredState.launches[1].callback({ exitCode = 1 })
+            assert(configuredState.error:find("org.example.App.desktop", 1, true))
+        else
+            local expected = mode == "terminal" and { "kitty", "--", "chosen-app", "--flag", "a value;$(literal)" }
+                or { "chosen-app", "--flag", "a value;$(literal)" }
+            equalArgs(configuredState.launches[1].argv, expected)
+            assert(configuredState.launches[1].callback == nil, "Apps must be detached, not time-limited capture jobs")
+        end
+    end
+    for _, mode in ipairs({ "direct", "terminal", "desktop", "invalid-mode" }) do
+        local empty, emptyState = environment()
+        emptyState.config[prefix .. "_mode"] = mode
+        emptyState.config[prefix .. "_command"] = ""
+        assert(loadfile("menu.luau", "t", empty))()
+        empty[callback]()
+        assert(emptyState.error and not emptyState.closed and #emptyState.launches == 0)
+    end
+end
+
+for _, command in ipairs({ "--option", "/tmp/app.desktop", "some command", "bad\nID", "$(literal)" }) do
+    local invalid, invalidState = environment()
+    invalidState.config.packages_mode = "desktop"
+    invalidState.config.packages_command = command
+    assert(loadfile("menu.luau", "t", invalid))()
+    invalid.openPackages()
+    assert(invalidState.error and #invalidState.launches == 0 and not invalidState.closed)
+end
+
+for _, key in ipairs({ "packages_args", "terminal_args", "terminal_exec_args" }) do
+    for _, value in ipairs({ "not-a-list", { 12 }, { "bad\nargument" }, { "bad\0argument" } }) do
+        local invalid, invalidState = environment()
+        invalidState.config[key] = value
+        assert(loadfile("menu.luau", "t", invalid))()
+        invalid.openPackages()
+        assert(invalidState.error and #invalidState.launches == 0 and not invalidState.closed)
+    end
+end
+
+for _, missing in ipairs({ "kitty", "pacsea" }) do
+    local absent, absentState = environment()
+    absentState.missing[missing] = true
+    assert(loadfile("menu.luau", "t", absent))()
+    absent.openPackages()
+    assert(absentState.error:find(missing, 1, true) and #absentState.launches == 0 and not absentState.closed)
+end
+
+local desktop, desktopState = environment()
+desktopState.config.terminal = ""
+desktopState.config.packages_mode = "desktop"
+desktopState.config.packages_command = "org.example.App.desktop"
+desktopState.config.packages_args = { "inactive" }
+assert(loadfile("menu.luau", "t", desktop))()
+desktop.openPackages()
+equalArgs(desktopState.launches[1].argv, { "python3", "-I", "/test/plugin/desktop-launch.py", "org.example.App.desktop" })
+desktopState.launches[1].callback({ exitCode = 0 })
+assert(not desktopState.error)
+desktopState.closed = false
+desktopState.missing["gtk-launch"] = true
+desktop.openPackages()
+assert(desktopState.error and not desktopState.closed and #desktopState.launches == 1)
+
+local expanded, expandedState = environment()
+expandedState.config.packages_command = "~/bin/custom app"
+assert(loadfile("menu.luau", "t", expanded))()
+expanded.openPackages()
+equalArgs(expandedState.launches[1].argv, { "kitty", "-e", "/home/test/bin/custom app" })
+
+local quoted, quotedState = environment()
+quotedState.config.terminal_command_format = "quoted"
+quotedState.config.packages_command = "/opt/a'b/app"
+quotedState.config.packages_args = { "$(literal); a b", "", "it's literal" }
+quotedState.config.terminal_exec_args = { "--command" }
+assert(loadfile("menu.luau", "t", quoted))()
+quoted.openPackages()
+equalArgs(quotedState.launches[1].argv, { "kitty", "--command", "'/opt/a'\\''b/app' '$(literal); a b' '' 'it'\\''s literal'" })
+
+local badFormat, badFormatState = environment()
+badFormatState.config.terminal_command_format = "unknown"
+assert(loadfile("menu.luau", "t", badFormat))()
+badFormat.openPackages()
+assert(badFormatState.error and #badFormatState.launches == 0 and not badFormatState.closed)
+badFormat.openTerminal()
+equalArgs(badFormatState.launches[1].argv, { "kitty" })
 local noTerminal, noTerminalState = environment()
 noTerminalState.config.terminal = ""
 assert(loadfile("menu.luau", "t", noTerminal))()
@@ -174,10 +282,10 @@ local rejected, rejectedState = environment()
 rejectedState.reject = true
 assert(loadfile("menu.luau", "t", rejected))()
 rejected.openTerminal()
-assert(rejectedState.error)
+assert(rejectedState.error and not rejectedState.closed)
 rejectedState.error = nil
 rejected.openTaskManager()
-assert(rejectedState.error)
+assert(rejectedState.error and not rejectedState.closed)
 equalArgs(rejectedState.launches[2].argv, { "missioncenter" })
 
 local widget, widgetState = environment()
@@ -230,6 +338,8 @@ state.profile = {
 assert(loadfile("about.luau", "t", about))()
 about.onOpen()
 assert(#state.launches == 1)
+local version = state.files["/test/plugin/plugin.toml"]:match('version%s*=%s*"([^"]+)"')
+assert(contains(state.tree, "System Menu " .. version), "Widget version must come from the installed manifest")
 state.launches[1].callback({ exitCode = 0, stdout = "profile" })
 assert(contains(state.tree, "Test CPU"))
 assert(hasImage(state.tree, "logo.svg", 64), "About must retain its bundled fallback logo")
@@ -254,4 +364,4 @@ assert(contains(state.tree, "Refresh"))
 state.reject = true
 about.refresh()
 assert(contains(state.tree, "Could not start collecting system information."))
-print("PASS: distro icons and fallbacks, configurable terminals/helpers, menu actions, about rendering, copy, details, error recovery and stale callbacks")
+print("PASS: distro icons, configurable GUI/TUI/desktop launchers, literal arguments, validation, launch failures, About version/copy/details and stale callbacks")
