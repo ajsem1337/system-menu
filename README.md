@@ -1,6 +1,6 @@
 # System Menu
 
-![Made with AI](https://img.shields.io/badge/Made%20with-AI-76ddcf)
+![Made with AI](https://raw.githubusercontent.com/ajsem1337/ajsem1337/main/assets/made-with-ai.svg)
 
 A Noctalia launcher for your package manager, system monitor and terminal,
 with a native system-information panel.
@@ -24,3 +24,7 @@ noctalia plugins lint system-menu
 ```
 
 MIT — [LICENSE](LICENSE). Inspired by [GNOME Logo Menu](https://github.com/Aryan20/Logomenu).
+
+---
+
+<p align="center"><sub>Built by <a href="https://github.com/ajsem1337">ajsem</a> with AI assistance.</sub></p>

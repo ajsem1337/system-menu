@@ -1,8 +1,8 @@
 # System Menu
 
-![Made with AI](https://img.shields.io/badge/Made%20with-AI-76ddcf)
+![Made with AI](https://raw.githubusercontent.com/ajsem1337/ajsem1337/main/assets/made-with-ai.svg)
 
-Launch a package manager, system monitor and terminal. View system information
+Launch a package manager, system monitor and terminal, and view system information
 in a native About panel.
 
 ## Plugin
@@ -15,7 +15,8 @@ in a native About panel.
 ## Requirements
 
 - Noctalia plugin API 43+.
-- `python3` (3.11+) and `fastfetch` for About; standard Linux tools including `lsblk`.
+- Python 3.11+ (`python3`) for About and Desktop entry mode.
+- `fastfetch` for About; standard Linux tools including `lsblk`.
 - Your chosen applications, installed separately.
 - `gtk-launch` for Desktop entry mode.
 
@@ -71,3 +72,7 @@ GNOME Terminal, or `start`, `--` for WezTerm. Hidden terminal options still appl
 See [operations and privacy](OPERATIONS.md) for process and data access.
 
 MIT. Inspired by [GNOME Logo Menu](https://github.com/Aryan20/Logomenu).
+
+---
+
+<p align="center"><sub>Built by <a href="https://github.com/ajsem1337">ajsem</a> with AI assistance.</sub></p>
